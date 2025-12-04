@@ -25,7 +25,7 @@ import ConfirmModal from '~/components/modal/Confirm.vue';
 import LoginModal from '~/components/modal/Login.vue';
 import toastFactory from '~/composables/toast';
 import useLoginCheck from '~/composables/useLoginCheck';
-import { IMAGE_PROXY, websiteName } from '~/config';
+import { IMAGE_PROXY, isDev, websiteName } from '~/config';
 import { deleteAccountData } from '~/store/v2';
 import { getArticleCache, hitCache } from '~/store/v2/article';
 import { getAllInfo, getInfoCache, type Info, importInfos } from '~/store/v2/info';
@@ -49,6 +49,37 @@ const { checkLogin } = useLoginCheck();
 
 const { getSyncTimestamp } = useSyncDeadline();
 
+/**
+ * 验证 fakeid 是否有效
+ */
+function isValidFakeid(fakeid: string | undefined | null): boolean {
+  if (!fakeid || typeof fakeid !== 'string') {
+    return false;
+  }
+  const trimmed = fakeid.trim();
+  const base64Pattern = /^[A-Za-z0-9+/=]{10,50}$/;
+  return trimmed.length >= 10 && base64Pattern.test(trimmed);
+}
+
+/**
+ * 检测并显示无效的公众号数据（仅开发模式）
+ */
+async function validateAccountData() {
+  const allAccounts = await getAllInfo();
+  const invalidAccounts = allAccounts.filter(acc => !isValidFakeid(acc.fakeid));
+  
+  if (invalidAccounts.length === 0) {
+    toast.success('数据验证', '所有公众号数据都是有效的');
+  } else {
+    console.warn('发现无效的公众号数据:', invalidAccounts);
+    const names = invalidAccounts.map(acc => `${acc.nickname || '未知'} (fakeid: ${acc.fakeid})`).join('\n');
+    toast.warning(
+      '数据验证',
+      `发现 ${invalidAccounts.length} 个公众号数据无效，建议删除后重新添加：\n${names}`
+    );
+  }
+}
+
 const preferences = usePreferences();
 
 // 账号事件总线，用于和 Credentials 面板保持列表同步
@@ -68,13 +99,36 @@ function addAccount() {
   searchAccountDialogRef.value!.open();
 }
 async function onSelectAccount(account: Info) {
+  // 验证公众号数据完整性
+  if (!account.fakeid || !account.fakeid.trim()) {
+    toast.error(
+      '添加失败', 
+      `公众号【${account.nickname || '未知'}】的数据不完整，缺少有效的 fakeid`
+    );
+    return;
+  }
+
   addBtnLoading.value = true;
-  await loadAccountArticle(account, false);
-  await refresh();
-  addBtnLoading.value = false;
-  toast.success('公众号添加成功', `已成功添加公众号【${account.nickname}】，并拉取了第一页文章数据`);
-  // 通知 Credentials 面板按钮立即变更为“已添加”
-  accountEventBus.emit('account-added', { fakeid: account.fakeid });
+  try {
+    await loadAccountArticle(account, false);
+    await refresh();
+    toast.success('公众号添加成功', `已成功添加公众号【${account.nickname}】，并拉取了第一页文章数据`);
+    // 通知 Credentials 面板按钮立即变更为"已添加"
+    accountEventBus.emit('account-added', { fakeid: account.fakeid });
+  } catch (error: any) {
+    const errorMsg = error.message || '未知错误';
+    // 针对 200002 错误提供更友好的提示
+    if (errorMsg.includes('200002') || errorMsg.includes('invalid args') || errorMsg.includes('无效')) {
+      toast.error(
+        '添加失败', 
+        `无法添加公众号【${account.nickname}】，数据验证失败。错误: ${errorMsg}`
+      );
+    } else {
+      toast.error('添加失败', errorMsg);
+    }
+  } finally {
+    addBtnLoading.value = false;
+  }
 }
 
 const isCanceled = ref(false);
@@ -194,14 +248,48 @@ async function loadSelectedAccountArticle() {
   try {
     const rows = getSelectedRows();
     
-    // 逐个同步公众号（每个同步后会自动上传到后端）
-    for (const account of rows) {
-      await loadAccountArticle(account);
+    if (rows.length === 0) {
+      toast.error('提示', '请先选择需要同步的公众号');
+      return;
+    }
+
+    // 检查是否有无效的公众号数据
+    const invalidAccounts = rows.filter(acc => !acc.fakeid || !acc.fakeid.trim());
+    if (invalidAccounts.length > 0) {
+      const names = invalidAccounts.map(acc => acc.nickname || '未知').join('、');
+      toast.error(
+        '数据错误', 
+        `以下公众号的数据不完整，请重新添加：${names}`
+      );
+      return;
     }
     
-    toast.success(`已成功同步 ${rows.length} 个公众号并上传到服务器`);
+    // 逐个同步公众号（每个同步后会自动上传到后端）
+    let successCount = 0;
+    let failedAccounts: string[] = [];
+    
+    for (const account of rows) {
+      try {
+        await loadAccountArticle(account);
+        successCount++;
+      } catch (error: any) {
+        console.error(`同步公众号 ${account.nickname} 失败:`, error);
+        failedAccounts.push(account.nickname || account.fakeid);
+      }
+    }
+    
+    // 显示同步结果
+    if (failedAccounts.length === 0) {
+      toast.success('同步完成', `已成功同步 ${successCount} 个公众号并上传到服务器`);
+    } else {
+      toast.warning(
+        '部分同步失败',
+        `成功: ${successCount} 个，失败: ${failedAccounts.length} 个（${failedAccounts.join('、')}）`
+      );
+    }
   } catch (e: any) {
-    toast.error('加载失败', e.message);
+    const errorMsg = e.message || '未知错误';
+    toast.error('同步失败', errorMsg);
   }
 }
 
@@ -356,13 +444,31 @@ const columnDefs = ref<ColDef[]>([
       onSync: (params: ICellRendererParams) => {
         // if (!checkLogin()) return;
 
+        // 验证公众号数据完整性
+        if (!params.data.fakeid || !params.data.fakeid.trim()) {
+          toast.error(
+            '数据错误', 
+            `公众号【${params.data.nickname || '未知'}】的数据不完整，请删除后重新添加`
+          );
+          return;
+        }
+
         isCanceled.value = false;
         loadAccountArticle(params.data)
           .then(() => {
             toast.success('同步完成', `公众号【${params.data.nickname}】的文章已同步完毕`);
           })
           .catch(e => {
-            toast.error('同步失败', e.message);
+            const errorMsg = e.message || '未知错误';
+            // 针对 200002 错误提供更友好的提示
+            if (errorMsg.includes('200002') || errorMsg.includes('invalid args') || errorMsg.includes('无效')) {
+              toast.error(
+                '同步失败', 
+                `公众号【${params.data.nickname}】的数据可能已损坏，建议删除后重新添加。错误: ${errorMsg}`
+              );
+            } else {
+              toast.error('同步失败', errorMsg);
+            }
           });
       },
       onStop: (params: ICellRendererParams) => {
@@ -637,6 +743,15 @@ function exportAccount() {
           :disabled="isDeleting || !hasSelectedRows"
           @click="loadSelectedAccountArticle"
           >同步</UButton
+        >
+        <!-- 开发模式：数据验证工具 -->
+        <UButton
+          v-if="isDev"
+          color="gray"
+          icon="i-heroicons:shield-check-20-solid"
+          variant="outline"
+          @click="validateAccountData"
+          >验证数据</UButton
         >
       </header>
 

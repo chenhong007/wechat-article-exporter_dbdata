@@ -62,7 +62,30 @@ export async function proxyMpRequest(options: RequestOptions) {
   // 处理登录请求的 uuid cookie
   if (options.action === 'start_login') {
     // 提取出 uuid 这个 cookie，并透传给客户端
-    setCookies = mpResponse.headers.getSetCookie().filter(cookie => cookie.startsWith('uuid='));
+    // 微信返回的 cookie 可能包含 Domain 和 Secure 属性，需要根据当前环境进行清洗
+    const rawCookies = mpResponse.headers.getSetCookie().filter(cookie => cookie.startsWith('uuid='));
+    setCookies = rawCookies.map(cookieStr => {
+      let newCookie = cookieStr;
+      // 移除 Domain 属性，以便在当前域名下写入
+      newCookie = newCookie.replace(/;\s*Domain=[^;]+/i, '');
+      // 移除 Secure 属性，以便在 HTTP 环境下写入 (如果是在 HTTPS 环境下，浏览器通常允许不带 Secure 的 cookie)
+      // 如果必须在 HTTPS 下强制 Secure，可以根据环境变量判断，但为了最大兼容性，这里移除它
+      newCookie = newCookie.replace(/;\s*Secure/i, '');
+      
+      // 确保 Path=/
+      if (!/;\s*Path=/i.test(newCookie)) {
+        newCookie += '; Path=/';
+      }
+      // 确保 HttpOnly (通常微信返回的已经有了，但以防万一)
+      if (!/;\s*HttpOnly/i.test(newCookie)) {
+        newCookie += '; HttpOnly';
+      }
+      // 设置 SameSite=Lax
+      if (!/;\s*SameSite=/i.test(newCookie)) {
+        newCookie += '; SameSite=Lax';
+      }
+      return newCookie;
+    });
   }
 
   // 处理登录成功请求的 cookie
@@ -84,10 +107,10 @@ export async function proxyMpRequest(options: RequestOptions) {
       }
 
       setCookies = [
-        `auth-key=${authKey}; Path=/; Expires=${dayjs().add(4, 'days').toString()}; Secure; HttpOnly`,
+        `auth-key=${authKey}; Path=/; Expires=${dayjs().add(4, 'days').toDate().toUTCString()}; HttpOnly; SameSite=Lax`,
 
         // 登录成功后，删除浏览器的 uuid cookie
-        `uuid=EXPIRED; Path=/; Expires=${dayjs().subtract(1, 'days').toString()}; Secure; HttpOnly`,
+        `uuid=EXPIRED; Path=/; Expires=${dayjs().subtract(1, 'days').toDate().toUTCString()}; HttpOnly; SameSite=Lax`,
       ];
     } catch (error) {
       console.error('action(login) failed:', error);

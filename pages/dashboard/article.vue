@@ -23,6 +23,7 @@ import { normalizeHtml } from '#shared/utils/html';
 import GridActions from '~/components/grid/Actions.vue';
 import GridAlbum from '~/components/grid/Album.vue';
 import GridCoverTooltip from '~/components/grid/CoverTooltip.vue';
+import GridLinkWithIcon from '~/components/grid/LinkWithIcon.vue';
 import GridLoading from '~/components/grid/Loading.vue';
 import GridNoRows from '~/components/grid/NoRows.vue';
 import GridStatusBar from '~/components/grid/StatusBar.vue';
@@ -78,9 +79,9 @@ const columnDefs = ref<ColDef[]>([
     cellDataType: 'text',
     sortable: false,
     filter: false,
-    minWidth: 150,
-    initialHide: true,
-    cellClass: 'font-mono',
+    minWidth: 200,
+    cellRenderer: GridLinkWithIcon,
+    cellClass: 'flex items-center',
   },
   {
     headerName: '标题',
@@ -214,6 +215,14 @@ const columnDefs = ref<ColDef[]>([
     filter: 'agNumberColumnFilter',
     minWidth: 100,
     cellClass: 'flex justify-center items-center font-mono',
+  },
+  {
+    field: 'account_name',
+    headerName: '公众号',
+    cellDataType: 'text',
+    filter: 'agSetColumnFilter',
+    minWidth: 150,
+    cellClass: 'flex justify-center items-center',
   },
   {
     field: 'author_name',
@@ -407,6 +416,16 @@ function preview(article: Article) {
 
 // 当前页面的数据模型
 interface Article extends AppMsgEx, Partial<ArticleMetadata> {
+  /**
+   * 公众号 fakeid (即 biz)
+   */
+  fakeid: string;
+
+  /**
+   * 公众号名称
+   */
+  account_name?: string;
+
   /**
    * 是否被选中
    */
@@ -614,14 +633,18 @@ async function refreshTableData() {
           articleData = {
             ...metadata,
             ...article,
+            fakeid: account.fakeid,
             contentDownload: contentDownload,
             commentDownload: commentDownload,
+            account_name: account.nickname,
           };
         } else {
           articleData = {
             ...article,
+            fakeid: account.fakeid,
             contentDownload: contentDownload,
             commentDownload: commentDownload,
+            account_name: account.nickname,
           };
         }
 

@@ -15,19 +15,47 @@ import type {
 const loginAccount = useLoginAccount();
 
 /**
+ * 验证 fakeid 是否有效
+ * fakeid 应该是一个非空字符串，且长度合理（通常是 base64 编码）
+ */
+function isValidFakeid(fakeid: string | undefined | null): boolean {
+  if (!fakeid || typeof fakeid !== 'string') {
+    return false;
+  }
+  // 去除空白字符
+  const trimmed = fakeid.trim();
+  // fakeid 通常是 base64 编码的字符串，长度一般在 10-50 之间
+  // 只包含字母、数字、+、/、= 字符
+  const base64Pattern = /^[A-Za-z0-9+/=]{10,50}$/;
+  return trimmed.length >= 10 && base64Pattern.test(trimmed);
+}
+
+/**
  * 获取文章列表
  * @param account
  * @param begin
  * @param keyword
  */
 export async function getArticleList(account: Info, begin = 0, keyword = ''): Promise<[AppMsgEx[], boolean, number]> {
+  // 验证 fakeid 参数
+  if (!isValidFakeid(account.fakeid)) {
+    throw new Error(`无效的公众号 ID (fakeid)，请检查公众号数据是否完整。公众号名称: ${account.nickname || '未知'}`);
+  }
+
+  // 构建查询参数，只在有关键词时才包含 keyword 参数
+  const queryParams: Record<string, any> = {
+    id: account.fakeid,
+    begin: begin,
+    size: ARTICLE_LIST_PAGE_SIZE,
+  };
+  
+  // 只在有搜索关键词时才添加 keyword 参数
+  if (keyword) {
+    queryParams.keyword = keyword;
+  }
+
   const resp = await request<AppMsgPublishResponse>('/api/web/mp/appmsgpublish', {
-    query: {
-      id: account.fakeid,
-      begin: begin,
-      size: ARTICLE_LIST_PAGE_SIZE,
-      keyword: keyword,
-    },
+    query: queryParams,
   });
 
   if (resp.base_resp.ret === 0) {
@@ -69,6 +97,11 @@ export async function getArticleList(account: Info, begin = 0, keyword = ''): Pr
  * @param keyword
  */
 export async function getAccountList(begin = 0, keyword = ''): Promise<[AccountInfo[], boolean]> {
+  // 验证 keyword 参数（虽然可以为空，但不应该是异常值）
+  if (keyword && typeof keyword !== 'string') {
+    throw new Error('无效的搜索关键词参数');
+  }
+
   const resp = await request<SearchBizResponse>('/api/web/mp/searchbiz', {
     query: {
       begin: begin,

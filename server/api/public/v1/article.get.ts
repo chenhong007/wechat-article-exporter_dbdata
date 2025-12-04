@@ -38,10 +38,8 @@ export default defineEventHandler(async event => {
 
   const params: Record<string, string | number> = {
     sub: isSearching ? 'search' : 'list',
-    search_field: isSearching ? '7' : 'null',
     begin: begin,
     count: size,
-    query: keyword,
     fakeid: fakeid,
     type: '101_1',
     free_publish_type: 1,
@@ -51,6 +49,12 @@ export default defineEventHandler(async event => {
     f: 'json',
     ajax: 1,
   };
+
+  // 只在搜索模式下添加 query 和 search_field 参数
+  if (isSearching) {
+    params.query = keyword;
+    params.search_field = '7';
+  }
 
   const resp = await proxyMpRequest({
     event: event,
