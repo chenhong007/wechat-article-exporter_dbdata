@@ -32,6 +32,7 @@ import { getAllInfo, getInfoCache, type Info, importInfos } from '~/store/v2/inf
 import type { AccountManifest } from '~/types/account';
 import type { Preferences } from '~/types/preferences';
 import { exportAccountJsonFile } from '~/utils/exporter';
+import { syncArticlesToBackend, batchSyncArticlesToBackend } from '~/composables/useBackendSync';
 
 useHead({
   title: `公众号管理 | ${websiteName}`,
@@ -156,15 +157,31 @@ async function loadAccountArticle(account: Info, loadMore = true) {
   return new Promise((resolve, reject) => {
     const promise: PromiseInstance = { resolve, reject };
 
-    _load(account, 0, loadMore, promise).catch(e => {
-      syncingRowId.value = null;
-      isSyncing.value = false;
+    _load(account, 0, loadMore, promise)
+      .then(async (result) => {
+        // 同步完成后，自动上传到后端服务器
+        try {
+          const syncResult = await syncArticlesToBackend(account.fakeid, false);
+          if (syncResult.success) {
+            console.log(`[后端同步] ${account.nickname}: ${syncResult.message}`);
+          } else {
+            console.warn(`[后端同步] ${account.nickname}: ${syncResult.message}`);
+          }
+        } catch (error: any) {
+          console.error(`[后端同步失败] ${account.nickname}:`, error);
+          // 不影响主流程，只记录错误
+        }
+        resolve(result);
+      })
+      .catch(e => {
+        syncingRowId.value = null;
+        isSyncing.value = false;
 
-      if (e.message === 'session expired') {
-        modal.open(LoginModal);
-      }
-      reject(e);
-    });
+        if (e.message === 'session expired') {
+          modal.open(LoginModal);
+        }
+        reject(e);
+      });
   });
 }
 
@@ -176,10 +193,13 @@ async function loadSelectedAccountArticle() {
 
   try {
     const rows = getSelectedRows();
+    
+    // 逐个同步公众号（每个同步后会自动上传到后端）
     for (const account of rows) {
       await loadAccountArticle(account);
     }
-    toast.success(`已成功同步 ${rows.length} 个公众号`);
+    
+    toast.success(`已成功同步 ${rows.length} 个公众号并上传到服务器`);
   } catch (e: any) {
     toast.error('加载失败', e.message);
   }

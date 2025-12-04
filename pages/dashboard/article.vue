@@ -27,6 +27,7 @@ import GridLoading from '~/components/grid/Loading.vue';
 import GridNoRows from '~/components/grid/NoRows.vue';
 import GridStatusBar from '~/components/grid/StatusBar.vue';
 import AccountSelectorForArticle from '~/components/selector/AccountSelectorForArticle.vue';
+import AccountMultiSelectorForArticle from '~/components/selector/AccountMultiSelectorForArticle.vue';
 import { isDev } from '~/config';
 import { articleDeleted, getArticleCache } from '~/store/v2/article';
 import { getCommentCache } from '~/store/v2/comment';
@@ -38,6 +39,7 @@ import type { AppMsgEx } from '~/types/types';
 import { Downloader } from '~/utils/download/Downloader';
 import { Exporter } from '~/utils/download/Exporter';
 import type { ArticleMetadata, DownloaderStatus, ExporterStatus } from '~/utils/download/types';
+import { batchGetArticlesFromBackend } from '~/composables/useBackendSync';
 
 let globalRowData: Article[] = [];
 
@@ -429,43 +431,243 @@ useHead({
   title: '文章链接 | 微信公众号文章导出',
 });
 
-const selectedAccount = ref<Info | undefined>();
+// 筛选条件
+const selectedAccounts = ref<Info[]>([]);
+const timeRange = ref<'today' | 'week' | 'month' | 'custom' | 'all'>('all');
+const customStartDate = ref<Date | null>(null);
+const customEndDate = ref<Date | null>(null);
+const titleSearch = ref('');
+const searchMode = ref<'and' | 'or'>('and');
 
-watch(selectedAccount, newVal => {
-  switchTableData(newVal!.fakeid).catch(() => {});
+// 时间范围选项
+const timeRangeOptions = [
+  { label: '全部时间', value: 'all' },
+  { label: '今天', value: 'today' },
+  { label: '本周', value: 'week' },
+  { label: '本月', value: 'month' },
+  { label: '自定义时间', value: 'custom' },
+];
+
+// 搜索模式选项
+const searchModeOptions = [
+  { label: 'AND (所有关键词)', value: 'and' },
+  { label: 'OR (任一关键词)', value: 'or' },
+];
+
+// 计算显示的时间范围描述
+const timeRangeDescription = computed(() => {
+  const filter = getTimeRangeTimestamps();
+  if (!filter) {
+    return '全部时间';
+  }
+  
+  const startDate = new Date(filter.start * 1000);
+  const endDate = new Date(filter.end * 1000);
+  
+  const formatDate = (date: Date) => {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  };
+  
+  const formatTime = (date: Date) => {
+    return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+  };
+  
+  if (timeRange.value === 'today') {
+    return `今天 (${formatDate(startDate)} 00:00 至 ${formatTime(endDate)})`;
+  } else if (timeRange.value === 'week') {
+    return `本周 (${formatDate(startDate)} 至 ${formatDate(endDate)} ${formatTime(endDate)})`;
+  } else if (timeRange.value === 'month') {
+    return `本月 (${formatDate(startDate)} 至 ${formatDate(endDate)} ${formatTime(endDate)})`;
+  } else if (timeRange.value === 'custom') {
+    return `自定义 (${formatDate(startDate)} 至 ${formatDate(endDate)})`;
+  }
+  
+  return '';
 });
 
 function getSelectedRows() {
   return gridApi.value?.getSelectedRows() || [];
 }
 
-async function switchTableData(fakeid: string) {
+// 获取时间范围的时间戳范围
+function getTimeRangeTimestamps(): { start: number; end: number } | null {
+  const now = new Date();
+  
+  // 今天0点0分0秒
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+  
+  // 当前时间
+  const nowTimestamp = now.getTime() / 1000;
+
+  switch (timeRange.value) {
+    case 'all':
+      return null; // 不过滤时间
+    case 'today':
+      // 今天：从今天0点到现在
+      return { start: todayStart.getTime() / 1000, end: nowTimestamp };
+    case 'week': {
+      // 本周：从本周一0点到现在
+      const weekStart = new Date(now);
+      const day = now.getDay(); // 0(周日) 到 6(周六)
+      const daysToMonday = (day + 6) % 7; // 距离本周一的天数（周一为0，周日为6）
+      weekStart.setDate(now.getDate() - daysToMonday);
+      weekStart.setHours(0, 0, 0, 0);
+      return { start: weekStart.getTime() / 1000, end: nowTimestamp };
+    }
+    case 'month': {
+      // 本月：从本月1日0点到现在
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+      return { start: monthStart.getTime() / 1000, end: nowTimestamp };
+    }
+    case 'custom':
+      if (customStartDate.value && customEndDate.value) {
+        // 自定义时间：从开始日期0点到结束日期23:59:59
+        const start = new Date(customStartDate.value);
+        start.setHours(0, 0, 0, 0);
+        const end = new Date(customEndDate.value);
+        end.setHours(23, 59, 59, 999);
+        return { start: start.getTime() / 1000, end: end.getTime() / 1000 };
+      }
+      return null;
+    default:
+      return null;
+  }
+}
+
+// 根据标题搜索过滤文章
+function filterByTitle(article: Article): boolean {
+  if (!titleSearch.value.trim()) {
+    return true;
+  }
+
+  const keywords = titleSearch.value
+    .trim()
+    .split(/\s+/)
+    .map(k => k.toLowerCase());
+  const title = article.title.toLowerCase();
+
+  if (searchMode.value === 'and') {
+    // AND 模式：所有关键词都要匹配
+    return keywords.every(keyword => title.includes(keyword));
+  } else {
+    // OR 模式：任一关键词匹配即可
+    return keywords.some(keyword => title.includes(keyword));
+  }
+}
+
+// 刷新数据
+async function refreshTableData() {
+  if (!selectedAccounts.value || selectedAccounts.value.length === 0) {
+    showToast('提示', '请先选择公众号');
+    return;
+  }
+
   loading.value = true;
   const articles: Article[] = [];
-  const data = await getArticleCache(fakeid, Date.now());
-  for (const article of data) {
-    const contentDownload = (await getHtmlCache(article.link)) !== undefined;
-    const commentDownload = (await getCommentCache(article.link)) !== undefined;
-    const metadata = await getMetadataCache(article.link);
-    if (metadata) {
-      articles.push({
-        ...metadata,
-        ...article,
-        contentDownload: contentDownload,
-        commentDownload: commentDownload,
-      });
-    } else {
-      articles.push({
-        ...article,
-        contentDownload: contentDownload,
-        commentDownload: commentDownload,
-      });
+  const timeRangeFilter = getTimeRangeTimestamps();
+
+  // 调试信息：输出时间范围
+  if (timeRangeFilter) {
+    console.log('时间范围筛选:', {
+      start: new Date(timeRangeFilter.start * 1000).toLocaleString('zh-CN'),
+      end: new Date(timeRangeFilter.end * 1000).toLocaleString('zh-CN'),
+      startTimestamp: timeRangeFilter.start,
+      endTimestamp: timeRangeFilter.end,
+    });
+  } else {
+    console.log('时间范围筛选: 全部时间');
+  }
+
+  try {
+    // 优先从后端服务器批量获取数据
+    const fakeids = selectedAccounts.value.map(acc => acc.fakeid);
+    console.log('[数据加载] 尝试从后端服务器获取数据...');
+    
+    const backendArticlesMap = await batchGetArticlesFromBackend(fakeids);
+    console.log(`[数据加载] 从后端获取了 ${backendArticlesMap.size} 个公众号的数据`);
+
+    // 处理所有选中的公众号
+    for (const account of selectedAccounts.value) {
+      let data = backendArticlesMap.get(account.fakeid);
+      
+      // 如果后端没有数据，回退到本地 IndexedDB
+      if (!data || data.length === 0) {
+        console.log(`[数据加载] 公众号 ${account.nickname} 后端无数据，从本地加载...`);
+        data = await getArticleCache(account.fakeid, Date.now());
+      }
+
+      // 处理文章数据
+      for (const article of data) {
+        // 时间过滤
+        if (timeRangeFilter) {
+          if (article.update_time < timeRangeFilter.start || article.update_time > timeRangeFilter.end) {
+            continue;
+          }
+        }
+
+        const contentDownload = (await getHtmlCache(article.link)) !== undefined;
+        const commentDownload = (await getCommentCache(article.link)) !== undefined;
+        const metadata = await getMetadataCache(article.link);
+        
+        let articleData: Article;
+        if (metadata) {
+          articleData = {
+            ...metadata,
+            ...article,
+            contentDownload: contentDownload,
+            commentDownload: commentDownload,
+          };
+        } else {
+          articleData = {
+            ...article,
+            contentDownload: contentDownload,
+            commentDownload: commentDownload,
+          };
+        }
+
+        // 标题搜索过滤
+        if (filterByTitle(articleData)) {
+          articles.push(articleData);
+        }
+      }
+    }
+
+    await sleep(200);
+    // 过滤已删除的文章（如果设置了隐藏）
+    globalRowData = articles.filter(article => (hideDeleted.value ? !article.is_deleted : true));
+    // 按发布时间倒序排列
+    globalRowData.sort((a, b) => b.update_time - a.update_time);
+    gridApi.value?.setGridOption('rowData', globalRowData);
+    
+    // 显示加载结果
+    console.log(`[数据加载完成] 共 ${globalRowData.length} 篇文章`);
+    
+    // 检查数据来源并给出友好提示
+    const fromBackend = backendArticlesMap.size > 0;
+    toast.add({
+      color: 'green',
+      title: fromBackend ? '数据加载完成（来自服务器）' : '数据加载完成（来自本地）',
+      description: `找到 ${globalRowData.length} 篇符合条件的文章`,
+      icon: 'i-heroicons-check-circle',
+    });
+  } catch (error) {
+    console.error('[数据加载失败]', error);
+    showToast('错误', '加载数据失败');
+  } finally {
+    loading.value = false;
+  }
+}
+
+// 已弃用的旧函数，保留兼容性
+async function switchTableData(fakeid: string) {
+  selectedAccounts.value = selectedAccounts.value.filter(acc => acc.fakeid === fakeid);
+  if (selectedAccounts.value.length === 0) {
+    const account = await import('~/store/v2/info').then(m => m.getInfoCache(fakeid));
+    if (account) {
+      selectedAccounts.value = [account];
     }
   }
-  await sleep(200);
-  globalRowData = articles.filter(article => (hideDeleted.value ? !article.is_deleted : true));
-  gridApi.value?.setGridOption('rowData', globalRowData);
-  loading.value = false;
+  await refreshTableData();
 }
 
 const toast = useToast();
@@ -989,13 +1191,89 @@ async function debug() {
 
     <div class="flex flex-col h-full divide-y divide-gray-200">
       <!-- 顶部筛选与操作区 -->
-      <header class="flex flex-col items-start 2xl:flex-row 2xl:items-center gap-2 2xl:justify-between px-3 py-2">
-        <div class="flex flex-col xl:flex-row gap-2">
-          <div class="flex space-x-3">
-            <AccountSelectorForArticle v-model="selectedAccount" class="w-80" />
+      <header class="flex flex-col items-start gap-3 px-3 py-3">
+        <!-- 第一行：公众号选择和时间选择 -->
+        <div class="flex flex-col xl:flex-row gap-3 w-full">
+          <div class="flex-1 min-w-[300px]">
+            <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 block">公众号选择</label>
+            <AccountMultiSelectorForArticle v-model="selectedAccounts" class="w-full" />
+          </div>
+          <div class="flex-1 min-w-[200px]">
+            <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 block">
+              时间范围
+              <span v-if="timeRangeDescription" class="text-xs text-gray-500 font-normal ml-2">{{ timeRangeDescription }}</span>
+            </label>
+            <USelectMenu
+              v-model="timeRange"
+              :options="timeRangeOptions"
+              option-attribute="label"
+              value-attribute="value"
+              size="md"
+              color="gray"
+              class="w-full"
+            />
           </div>
         </div>
-        <div class="flex items-center space-x-2">
+
+        <!-- 第二行：自定义时间选择（仅在选择自定义时间时显示） -->
+        <div v-if="timeRange === 'custom'" class="flex flex-col sm:flex-row gap-3 w-full">
+          <div class="flex-1">
+            <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 block">开始日期</label>
+            <input
+              v-model="customStartDate"
+              type="date"
+              class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-800 dark:text-gray-200"
+            />
+          </div>
+          <div class="flex-1">
+            <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 block">结束日期</label>
+            <input
+              v-model="customEndDate"
+              type="date"
+              class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-800 dark:text-gray-200"
+            />
+          </div>
+        </div>
+
+        <!-- 第三行：标题搜索 -->
+        <div class="flex flex-col sm:flex-row gap-3 w-full items-end">
+          <div class="flex-1 min-w-[300px]">
+            <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 block">标题搜索（支持多个关键词，用空格分隔）</label>
+            <UInput
+              v-model="titleSearch"
+              placeholder="输入标题关键词，多个关键词用空格分隔"
+              size="md"
+              color="gray"
+              icon="i-heroicons-magnifying-glass-20-solid"
+            />
+          </div>
+          <div class="w-full sm:w-auto min-w-[180px]">
+            <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 block">匹配模式</label>
+            <USelectMenu
+              v-model="searchMode"
+              :options="searchModeOptions"
+              option-attribute="label"
+              value-attribute="value"
+              size="md"
+              color="gray"
+              class="w-full"
+            />
+          </div>
+          <UButton
+            @click="refreshTableData"
+            :loading="loading"
+            :disabled="selectedAccounts.length === 0"
+            size="md"
+            color="primary"
+            icon="i-heroicons-arrow-path-20-solid"
+            class="w-full sm:w-auto whitespace-nowrap"
+          >
+            刷新数据
+          </UButton>
+        </div>
+
+        <!-- 第四行：操作按钮 -->
+        <div class="flex flex-wrap items-center gap-2 w-full pt-2 border-t border-gray-200 dark:border-gray-700">
           <ButtonGroup
             :items="[
               { label: '文章内容', event: 'download-article-html' },
@@ -1008,7 +1286,7 @@ async function debug() {
           >
             <UButton
               :loading="downloadBtnLoading"
-              :disabled="!selectedAccount"
+              :disabled="selectedAccounts.length === 0"
               color="white"
               class="font-mono"
               :label="downloadBtnLoading ? `抓取中 ${progress_1}/${progress_2}` : '抓取'"
@@ -1034,7 +1312,7 @@ async function debug() {
           >
             <UButton
               :loading="exportBtnLoading"
-              :disabled="!selectedAccount"
+              :disabled="selectedAccounts.length === 0"
               color="white"
               class="font-mono"
               :label="exportBtnLoading ? `${exportPhase} ${progress_1}/${progress_2}` : '导出'"

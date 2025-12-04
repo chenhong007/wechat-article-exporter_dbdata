@@ -10,6 +10,8 @@
         <SettingExport />
         <SettingMisc />
       </div>
+      <SettingBackendStorage />
+      <SettingDatabase />
       <!--      <div>-->
       <!--        <SettingDisplay />-->
       <!--      </div>-->
