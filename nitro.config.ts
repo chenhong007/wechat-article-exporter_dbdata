@@ -11,8 +11,10 @@ export default defineNitroConfig({
   storage: {
     // 数据存储配置
     data: {
-      // 开发环境使用文件系统存储
-      driver: process.env.NODE_ENV === 'production' ? 'cloudflare-kv-binding' : 'fs',
+      // 使用环境变量控制存储驱动，默认使用文件系统
+      // STORAGE_DRIVER=cloudflare-kv-binding 用于 Cloudflare Pages 部署
+      // STORAGE_DRIVER=fs 或不设置，用于 Docker 自托管
+      driver: process.env.STORAGE_DRIVER || 'fs',
       
       // 文件系统存储配置（Docker 自托管）
       base: process.env.STORAGE_BASE_PATH || './.data/storage',

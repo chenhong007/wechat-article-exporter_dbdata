@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  wechat-article-exporter:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VERSION: ${VERSION:-latest}
+    image: wechat-article-exporter:${VERSION:-latest}
+    container_name: wechat-article-exporter
+    ports:
+      - "3000:3000"
+    volumes:
+      # 持久化 KV 存储数据
+      - ./data:/app/.data
+    environment:
+      - NODE_ENV=production
+      - HOST=0.0.0.0
+      - PORT=3000
+      - NITRO_KV_DRIVER=fs
+      - NITRO_KV_BASE=.data/kv
+    restart: unless-stopped
+    networks:
+      - wechat-network
+
+networks:
+  wechat-network:
+    driver: bridge

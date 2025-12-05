@@ -17,7 +17,8 @@ COPY . .
 # 构建 Nuxt 应用（生成 .output 目录）
 ENV NODE_ENV=production \
     NITRO_KV_DRIVER=fs \
-    NITRO_KV_BASE=.data/kv
+    NITRO_KV_BASE=.data/kv \
+    NODE_OPTIONS="--max-old-space-size=4096"
 
 RUN yarn build
 
