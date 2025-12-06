@@ -22,7 +22,7 @@ NC='\033[0m' # No Color
 
 # 项目配置
 PROJECT_DIR="/home/wechat-article-exporter"
-CONTAINER_NAME="wechat-exporter"
+CONTAINER_NAME="wechat-article-exporter"
 IMAGE_NAME="wechat-article-exporter"
 
 # 日志函数
@@ -64,17 +64,35 @@ check_git_changes() {
     
     if git diff --quiet && git diff --cached --quiet; then
         log_warning "没有检测到代码变化"
-        read -p "是否仍然继续部署？(y/n) " -n 1 -r
+        read -p "是否仍然继续部署？(y/n/q) [y=继续, n=跳过构建仅重启, q=退出]: " -n 1 -r
         echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        if [[ $REPLY =~ ^[Qq]$ ]]; then
             log_info "部署已取消"
             exit 0
+        elif [[ $REPLY =~ ^[Nn]$ ]]; then
+            log_info "跳过构建步骤，仅重启容器"
+            SKIP_BUILD=true
+        else
+            log_info "继续完整部署流程"
+            FORCE_REBUILD=${FORCE_REBUILD:-false}
         fi
     else
         log_info "检测到以下文件变化："
         git status --short | head -20
         if [ $(git status --short | wc -l) -gt 20 ]; then
             echo "... (共 $(git status --short | wc -l) 个文件)"
+        fi
+        
+        # 检查是否只是非关键文件变化
+        local changed_files=$(git status --short | awk '{print $2}')
+        if ! echo "$changed_files" | grep -qE "(\.ts|\.tsx|\.vue|\.js|\.jsx|package\.json|yarn\.lock|Dockerfile|docker-compose\.yml|nuxt\.config|tsconfig\.json)"; then
+            log_info "仅检测到非关键文件变化（如文档、配置等）"
+            read -p "是否跳过构建步骤？(y/n) [y=跳过构建, n=完整重建]: " -n 1 -r
+            echo
+            if [[ $REPLY =~ ^[Yy]$ ]]; then
+                log_info "跳过构建步骤"
+                SKIP_BUILD=true
+            fi
         fi
     fi
 }
@@ -116,6 +134,36 @@ clean_old_images() {
     fi
 }
 
+# 检查是否需要重新构建
+check_rebuild_needed() {
+    log_info "检查是否需要重新构建..."
+    
+    # 检查镜像是否存在
+    if ! docker images "$IMAGE_NAME" | grep -q "$IMAGE_NAME"; then
+        log_info "镜像不存在，需要构建"
+        return 0
+    fi
+    
+    # 检查关键文件是否有变化
+    local rebuild_needed=false
+    local changed_files=$(git diff --name-only HEAD 2>/dev/null || echo "")
+    
+    if echo "$changed_files" | grep -qE "(package\.json|yarn\.lock|Dockerfile|docker-compose\.yml|nuxt\.config|tsconfig\.json)"; then
+        log_info "检测到关键文件变化，需要重新构建"
+        rebuild_needed=true
+    elif [ -n "$changed_files" ]; then
+        log_info "检测到代码变化，建议重新构建"
+        rebuild_needed=true
+    fi
+    
+    if [ "$rebuild_needed" = true ]; then
+        return 0
+    else
+        log_warning "未检测到需要重新构建的变化"
+        return 1
+    fi
+}
+
 # 构建 Docker 镜像
 build_image() {
     log_info "开始构建 Docker 镜像..."
@@ -133,6 +181,16 @@ build_image() {
     local retry=0
     local build_success=false
     
+    # 默认使用缓存构建，除非明确指定强制重建
+    local build_args=""
+    if [ "$FORCE_REBUILD" = "true" ]; then
+        log_info "强制重新构建（不使用缓存）"
+        build_args="--no-cache"
+    else
+        log_info "使用缓存构建（更快）"
+        build_args=""
+    fi
+    
     while [ $retry -lt $max_retries ]; do
         if [ $retry -gt 0 ]; then
             log_info "第 $((retry + 1)) 次尝试构建..."
@@ -140,7 +198,7 @@ build_image() {
         fi
         
         # 构建镜像并保存日志
-        if docker compose build --no-cache 2>&1 | tee /tmp/docker-build.log; then
+        if docker compose build $build_args 2>&1 | tee /tmp/docker-build.log; then
             build_success=true
             break
         else
@@ -259,13 +317,52 @@ main() {
     print_separator
     echo ""
     
+    # 解析命令行参数
+    FORCE_REBUILD=false
+    SKIP_BUILD=false
+    
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --force|-f)
+                FORCE_REBUILD=true
+                log_info "启用强制重建模式"
+                shift
+                ;;
+            --no-build|-nb)
+                SKIP_BUILD=true
+                log_info "跳过构建步骤"
+                shift
+                ;;
+            --help|-h)
+                echo "用法: $0 [选项]"
+                echo "选项:"
+                echo "  -f, --force      强制重新构建（不使用缓存）"
+                echo "  -nb, --no-build  跳过构建步骤，仅重启容器"
+                echo "  -h, --help       显示此帮助信息"
+                exit 0
+                ;;
+            *)
+                log_error "未知选项: $1"
+                echo "使用 --help 查看帮助"
+                exit 1
+                ;;
+        esac
+    done
+    
     # 执行部署流程
     check_docker
     check_git_changes
     backup_database
     stop_old_container
-    clean_old_images
-    build_image
+    
+    # 根据标志决定是否构建
+    if [ "$SKIP_BUILD" = true ]; then
+        log_info "跳过镜像构建和清理步骤"
+    else
+        clean_old_images
+        build_image
+    fi
+    
     start_container
     
     # 等待并验证
