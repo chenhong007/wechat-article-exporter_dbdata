@@ -32,6 +32,19 @@
 该工具的使用教程已移至 [文档站点](https://docs.mptext.top)。
 
 
+## :question: 常见问题
+
+### 网络连接问题
+
+如果遇到 `fetch failed` 或 `TLS connection` 错误，请查看 [网络连接问题排查指南](./NETWORK_TROUBLESHOOTING.md)。
+
+常见解决方案：
+- 配置系统代理（HTTP_PROXY/HTTPS_PROXY）
+- 调整重试参数（REQUEST_MAX_RETRIES、REQUEST_TIMEOUT）
+- 检查防火墙设置
+- 尝试更换 DNS
+
+
 ## :dart: 特性
 
 - [x] 搜索公众号，支持关键字搜索

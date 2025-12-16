@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cursor 模型推荐指南</title>
+    <link rel="stylesheet" href="https://lf26-cdn-tos.bytecdntp.com/cdn/expire-1-M/reveal.js/4.3.0/reveal.css">
+    <link rel="stylesheet" href="https://lf9-cdn-tos.bytecdntp.com/cdn/expire-1-M/reveal.js/4.3.0/theme/white.min.css">
+    <link rel="stylesheet" href="https://lf6-cdn-tos.bytecdntp.com/cdn/expire-100-M/font-awesome/6.0.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            --primary-color: #FF6B35;
+            --secondary-color: #F7931E;
+            --accent-color: #C44569;
+            --dark-color: #2C3E50;
+            --light-bg: #FFF8F3;
+        }
+
+        body {
+            font-family: 'Noto Sans SC', Tahoma, Arial, sans-serif;
+            background: linear-gradient(135deg, #FFF8F3 0%, #FFE8D6 100%);
+        }
+
+        .reveal {
+            font-family: 'Noto Sans SC', Tahoma, Arial, sans-serif;
+        }
+
+        .reveal h1, .reveal h2, .reveal h3 {
+            font-family: 'Noto Serif SC', serif;
+            text-transform: none;
+            font-weight: 700;
+        }
+
+        .reveal h1 {
+            font-size: 3em;
+            color: var(--dark-color);
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .reveal h2 {
+            font-size: 2.2em;
+            color: var(--primary-color);
+        }
+
+        .reveal h3 {
+            font-size: 1.5em;
+            color: var(--accent-color);
+        }
+
+        /* 封面样式 */
+        .title-slide {
+            background: linear-gradient(135deg, #FF6B35 0%, #F7931E 50%, #C44569 100%);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            padding: 2rem;
+        }
+
+        .title-slide h1 {
+            color: white;
+            font-size: 3.5em;
+            margin-bottom: 0.3em;
+            text-shadow: 3px 3px 6px rgba(0,0,0,0.3);
+            line-height: 1.2;
+        }
+
+        .title-slide .subtitle {
+            font-size: 1.3em;
+            opacity: 0.95;
+            margin-top: 1em;
+            font-weight: 300;
+        }
+
+        .title-slide .author {
+            margin-top: 2em;
+            font-size: 1.2em;
+            opacity: 0.9;
+            font-style: italic;
+        }
+
+        /* 卡片样式 */
+        .mode-card {
+            background: white;
+            border-radius: 20px;
+            padding: 2rem;
+            margin: 1rem auto;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            transition: transform 0.3s ease;
+            max-width: 800px;
+        }
+
+        .mode-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 40px rgba(0,0,0,0.15);
+        }
+
+        .mode-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 1.5rem;
+            border-bottom: 3px solid var(--primary-color);
+            padding-bottom: 1rem;
+        }
+
+        .mode-icon {
+            font-size: 2.5em;
+            margin-right: 0.5em;
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .mode-title {
+            font-size: 2em;
+            font-weight: 700;
+            color: var(--dark-color);
+            margin: 0;
+        }
+
+        .model-tag {
+            display: inline-block;
+            background: linear-gradient(135deg, #FF6B35, #F7931E);
+            color: white;
+            padding: 0.5em 1.5em;
+            border-radius: 25px;
+            font-weight: 600;
+            font-size: 1.2em;
+            margin: 0.3em;
+            box-shadow: 0 4px 15px rgba(255,107,53,0.3);
+        }
+
+        /* 三角形图表 */
+        .triangle-container {
+            position: relative;
+            width: 500px;
+            height: 450px;
+            margin: 2rem auto;
+        }
+
+        .triangle-point {
+            position: absolute;
+            text-align: center;
+            font-weight: 600;
+            font-size: 1.4em;
+        }
+
+        .triangle-point i {
+            display: block;
+            font-size: 2em;
+            margin-bottom: 0.3em;
+        }
+
+        .point-smart {
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #FF6B35;
+        }
+
+        .point-speed {
+            bottom: 0;
+            left: 0;
+            color: #F7931E;
+        }
+
+        .point-cost {
+            bottom: 0;
+            right: 0;
+            color: #C44569;
+        }
+
+        .triangle-center {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+        }
+
+        .triangle-center i {
+            font-size: 3em;
+            color: var(--accent-color);
+        }
+
+        /* 比较表格 */
+        .comparison-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1.5rem;
+            margin: 2rem auto;
+            max-width: 900px;
+        }
+
+        .comparison-item {
+            background: white;
+            border-radius: 15px;
+            padding: 1.5rem;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.08);
+            border-left: 5px solid var(--primary-color);
+        }
+
+        .comparison-item h3 {
+            margin-top: 0;
+            color: var(--primary-color);
+            font-size: 1.3em;
+        }
+
+        .comparison-item .model-name {
+            font-size: 1.1em;
+            font-weight: 600;
+            color: var(--dark-color);
+            margin: 0.5em 0;
+        }
+
+        /* 总结框 */
+        .summary-box {
+            background: linear-gradient(135deg, #FF6B35 0%, #F7931E 100%);
+            color: white;
+            border-radius: 20px;
+            padding: 2rem 3rem;
+            margin: 2rem auto;
+            max-width: 800px;
+            box-shadow: 0 10px 30px rgba(255,107,53,0.3);
+        }
+
+        .summary-box h3 {
+            color: white;
+            font-size: 1.8em;
+            margin-bottom: 1em;
+        }
+
+        .summary-box p {
+            font-size: 1.2em;
+            line-height: 1.8;
+            margin: 0;
+        }
+
+        /* 响应式调整 */
+        @media (max-width: 768px) {
+            .title-slide h1 {
+                font-size: 2.5em;
+            }
+            
+            .comparison-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .triangle-container {
+                width: 100%;
+                max-width: 400px;
+            }
+            
+            .mode-card {
+                padding: 1.5rem;
+            }
+        }
+
+        /* 动画效果 */
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .reveal .slides section {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .fragment {
+            animation: fadeInUp 0.6s ease;
+        }
+
+        /* 高亮文字 */
+        .highlight {
+            color: var(--primary-color);
+            font-weight: 700;
+        }
+
+        .emphasize {
+            background: linear-gradient(135deg, #FF6B35, #F7931E);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            font-weight: 700;
+        }
+
+        /* SVG 样式 */
+        .triangle-svg {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: -1;
+        }
+    </style>
+</head>
+<body>
+    <div class="reveal">
+        <div class="slides">
+            
+            <!-- 封面页 -->
+            <section>
+                <div class="title-slide">
+                    <i class="fas fa-brain" style="font-size: 3em; margin-bottom: 0.5em;"></i>
+                    <h1>Cursor 中不同模式下的<br/>模型推荐</h1>
+                    <p class="subtitle">AI 模型智能组合的最佳实践</p>
+                    <p class="author">by 小橘子</p>
+                </div>
+            </section>
+
+            <!-- AI 不可能三角 -->
+            <section>
+                <h2><i class="fas fa-project-diagram"></i> AI 模型的不可能三角</h2>
+                <div class="triangle-container">
+                    <svg class="triangle-svg" width="450" height="400" viewBox="0 0 450 400">
+                        <defs>
+                            <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+                                <stop offset="0%" style="stop-color:#FF6B35;stop-opacity:0.3" />
+                                <stop offset="100%" style="stop-color:#F7931E;stop-opacity:0.3" />
+                            </linearGradient>
+                        </defs>
+                        <polygon points="225,50 50,350 400,350" 
+                                 fill="url(#grad1)" 
+                                 stroke="#FF6B35" 
+                                 stroke-width="3"
+                                 stroke-dasharray="10,5"/>
+                    </svg>
+                    <div class="triangle-point point-smart">
+                        <i class="fas fa-lightbulb"></i>
+                        智能
+                    </div>
+                    <div class="triangle-point point-speed">
+                        <i class="fas fa-bolt"></i>
+                        速度
+                    </div>
+                    <div class="triangle-point point-cost">
+                        <i class="fas fa-coins"></i>
+                        成本
+                    </div>
+                    <div class="triangle-center">
+                        <i class="fas fa-balance-scale"></i>
+                    </div>
+                </div>
+                <p style="font-size: 1.2em; color: var(--dark-color); margin-top: 2rem;">
+                    无法同时满足三个要素，需要<span class="emphasize">权衡取舍</span>
+                </p>
+            </section>
+
+            <!-- Eric 的分享 -->
+            <section>
+                <h2><i class="fas fa-user-tie"></i> Eric 的实践分享</h2>
+                <div style="text-align: left; max-width: 800px; margin: 2rem auto; font-size: 1.1em; line-height: 2;">
+                    <p style="margin-bottom: 1.5em;">
+                        <i class="fas fa-quote-left" style="color: var(--primary-color); margin-right: 0.5em;"></i>
+                        来自 <span class="highlight">Cursor 团队成员 Eric</span> 的一线实践经验
+                    </p>
+                    <p style="margin-bottom: 1.5em;">
+                        通过长期使用和测试，总结出在<span class="emphasize">智能、速度、成本</span>这个不可能三角的前提下，最优的模型组合方案
+                    </p>
+                    <p>
+                        <i class="fas fa-check-circle" style="color: #2ecc71; margin-right: 0.5em;"></i>
+                        针对不同工作场景，选择最适合的 AI 模型
+                    </p>
+                </div>
+            </section>
+
+            <!-- 四种模式总览 -->
+            <section>
+                <h2><i class="fas fa-th-large"></i> 四种核心模式</h2>
+                <div class="comparison-grid">
+                    <div class="comparison-item fragment">
+                        <h3><i class="fas fa-map"></i> 计划模式</h3>
+                        <div class="model-name">GPT-5.2 Extra High</div>
+                        <p style="color: #7f8c8d; margin-top: 0.5em;">架构设计 · 方案规划</p>
+                    </div>
+                    <div class="comparison-item fragment">
+                        <h3><i class="fas fa-robot"></i> 智能体模式</h3>
+                        <div class="model-name">Claude Opus 4.5 & Composer-1</div>
+                        <p style="color: #7f8c8d; margin-top: 0.5em;">自主执行 · 复杂任务</p>
+                    </div>
+                    <div class="comparison-item fragment">
+                        <h3><i class="fas fa-bug"></i> 调试模式</h3>
+                        <div class="model-name">GPT-5.2 Extra High</div>
+                        <p style="color: #7f8c8d; margin-top: 0.5em;">问题定位 · 错误修复</p>
+                    </div>
+                    <div class="comparison-item fragment">
+                        <h3><i class="fas fa-comments"></i> 问答模式</h3>
+                        <div class="model-name">Composer-1</div>
+                        <p style="color: #7f8c8d; margin-top: 0.5em;">快速响应 · 知识查询</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 计划模式 -->
+            <section>
+                <div class="mode-card">
+                    <div class="mode-header">
+                        <i class="fas fa-map mode-icon"></i>
+                        <h2 class="mode-title">计划模式</h2>
+                    </div>
+                    <div style="text-align: left; font-size: 1.1em;">
+                        <p style="margin-bottom: 1.5em; line-height: 1.8;">
+                            用于<span class="highlight">架构设计</span>和<span class="highlight">方案规划</span>，需要深度思考和全局视野
+                        </p>
+                        <div style="margin: 2em 0;">
+                            <span class="model-tag">GPT-5.2 Extra High</span>
+                        </div>
+                        <div style="background: var(--light-bg); padding: 1.5rem; border-radius: 10px; margin-top: 2em;">
+                            <p style="margin: 0;"><i class="fas fa-star" style="color: #F7931E; margin-right: 0.5em;"></i><strong>最强智能</strong> - 处理复杂问题的能力</p>
+                            <p style="margin: 1em 0 0 0;"><i class="fas fa-brain" style="color: #FF6B35; margin-right: 0.5em;"></i><strong>深度推理</strong> - 系统性思考和规划</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 智能体模式 -->
+            <section>
+                <div class="mode-card">
+                    <div class="mode-header">
+                        <i class="fas fa-robot mode-icon"></i>
+                        <h2 class="mode-title">智能体模式</h2>
+                    </div>
+                    <div style="text-align: left; font-size: 1.1em;">
+                        <p style="margin-bottom: 1.5em; line-height: 1.8;">
+                            用于<span class="highlight">自主执行复杂任务</span>，需要长时间运行和多步骤协作
+                        </p>
+                        <div style="margin: 2em 0;">
+                            <span class="model-tag">Claude Opus 4.5</span>
+                            <span class="model-tag">Composer-1</span>
+                        </div>
+                        <div style="background: var(--light-bg); padding: 1.5rem; border-radius: 10px; margin-top: 2em;">
+                            <p style="margin: 0;"><i class="fas fa-cogs" style="color: #9b59b6; margin-right: 0.5em;"></i><strong>Claude Opus 4.5</strong> - 核心智能引擎</p>
+                            <p style="margin: 1em 0 0 0;"><i class="fas fa-layer-group" style="color: #e74c3c; margin-right: 0.5em;"></i><strong>Composer-1</strong> - 高效协同编排</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 调试模式 -->
+            <section>
+                <div class="mode-card">
+                    <div class="mode-header">
+                        <i class="fas fa-bug mode-icon"></i>
+                        <h2 class="mode-title">调试模式</h2>
+                    </div>
+                    <div style="text-align: left; font-size: 1.1em;">
+                        <p style="margin-bottom: 1.5em; line-height: 1.8;">
+                            用于<span class="highlight">问题定位</span>和<span class="highlight">错误修复</span>，需要精准分析
+                        </p>
+                        <div style="margin: 2em 0;">
+                            <span class="model-tag">GPT-5.2 Extra High</span>
+                        </div>
+                        <div style="background: var(--light-bg); padding: 1.5rem; border-radius: 10px; margin-top: 2em;">
+                            <p style="margin: 0;"><i class="fas fa-search" style="color: #e67e22; margin-right: 0.5em;"></i><strong>精准定位</strong> - 快速找到问题根源</p>
+                            <p style="margin: 1em 0 0 0;"><i class="fas fa-wrench" style="color: #c0392b; margin-right: 0.5em;"></i><strong>有效修复</strong> - 提供可靠的解决方案</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 问答模式 -->
+            <section>
+                <div class="mode-card">
+                    <div class="mode-header">
+                        <i class="fas fa-comments mode-icon"></i>
+                        <h2 class="mode-title">问答模式</h2>
+                    </div>
+                    <div style="text-align: left; font-size: 1.1em;">
+                        <p style="margin-bottom: 1.5em; line-height: 1.8;">
+                            用于<span class="highlight">快速响应</span>和<span class="highlight">知识查询</span>，追求效率和成本平衡
+                        </p>
+                        <div style="margin: 2em 0;">
+                            <span class="model-tag">Composer-1</span>
+                        </div>
+                        <div style="background: var(--light-bg); padding: 1.5rem; border-radius: 10px; margin-top: 2em;">
+                            <p style="margin: 0;"><i class="fas fa-bolt" style="color: #f39c12; margin-right: 0.5em;"></i><strong>极速响应</strong> - 即时获得答案</p>
+                            <p style="margin: 1em 0 0 0;"><i class="fas fa-dollar-sign" style="color: #27ae60; margin-right: 0.5em;"></i><strong>成本优化</strong> - 高频使用的理想选择</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 实践总结 -->
+            <section>
+                <h2><i class="fas fa-lightbulb"></i> 实践总结</h2>
+                <div class="summary-box">
+                    <h3><i class="fas fa-trophy"></i> 最佳组合策略</h3>
+                    <p>
+                        通过在不同场景下选择<strong>最适合的模型</strong>，我们可以在
+                        <strong>智能、速度、成本</strong>之间达到最优平衡
+                    </p>
+                </div>
+                <div style="margin-top: 3rem; text-align: left; max-width: 750px; margin-left: auto; margin-right: auto; font-size: 1.1em;">
+                    <p class="fragment" style="margin: 1em 0;">
+                        <i class="fas fa-check" style="color: #2ecc71; margin-right: 0.5em;"></i>
+                        <strong>重要任务</strong> → 优先保证智能性 (GPT-5.2)
+                    </p>
+                    <p class="fragment" style="margin: 1em 0;">
+                        <i class="fas fa-check" style="color: #2ecc71; margin-right: 0.5em;"></i>
+                        <strong>复杂流程</strong> → 智能与协作并重 (Claude Opus 4.5 + Composer-1)
+                    </p>
+                    <p class="fragment" style="margin: 1em 0;">
+                        <i class="fas fa-check" style="color: #2ecc71; margin-right: 0.5em;"></i>
+                        <strong>日常查询</strong> → 追求速度和成本效益 (Composer-1)
+                    </p>
+                </div>
+            </section>
+
+            <!-- 结束页 -->
+            <section>
+                <div class="title-slide" style="background: linear-gradient(135deg, #2C3E50 0%, #34495e 100%);">
+                    <i class="fas fa-rocket" style="font-size: 3em; margin-bottom: 0.5em;"></i>
+                    <h1 style="font-size: 2.8em;">合理选择模型<br/>提升开发效率</h1>
+                    <p class="subtitle" style="margin-top: 2em; font-size: 1.1em;">
+                        感谢观看
+                    </p>
+                    <p style="margin-top: 2em; font-size: 1em; opacity: 0.8;">
+                        <i class="fas fa-heart" style="color: #e74c3c;"></i> by 小橘子
+                    </p>
+                </div>
+            </section>
+
+        </div>
+    </div>
+
+    <script src="https://lf9-cdn-tos.bytecdntp.com/cdn/expire-1-M/reveal.js/4.3.0/reveal.min.js"></script>
+    <script>
+        Reveal.initialize({
+            hash: true,
+            controls: true,
+            progress: true,
+            center: true,
+            transition: 'slide',
+            transitionSpeed: 'default',
+            backgroundTransition: 'fade',
+            
+            // 响应式配置
+            width: 1280,
+            height: 720,
+            margin: 0.04,
+            minScale: 0.2,
+            maxScale: 2.0,
+            
+            // 键盘导航
+            keyboard: {
+                37: 'prev',
+                39: 'next',
+                38: 'prev',
+                40: 'next'
+            }
+        });
+
+        // 添加一些交互效果
+        Reveal.on('slidechanged', event => {
+            // 可以在这里添加自定义的幻灯片切换效果
+        });
+    </script>
+</body>
+</html>

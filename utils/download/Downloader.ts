@@ -55,7 +55,12 @@ export class Downloader extends BaseDownload {
 
   // 停止下载任务
   public stop() {
+    if (!this.isProcessing) {
+      return;
+    }
     this.isStopping = true;
+    // 取消所有待处理的请求
+    this.cancelAllPending();
   }
 
   // 处理下载任务队列
@@ -63,6 +68,14 @@ export class Downloader extends BaseDownload {
     const activePromises: Promise<any>[] = [];
 
     begin: while (this.urls.length > 0 || activePromises.length > 0) {
+      // 检查是否需要停止
+      if (this.isStopping) {
+        console.debug('检测到停止信号，清空剩余任务');
+        // 清空待下载队列
+        this.urls.length = 0;
+        break begin;
+      }
+
       // 检查是否需要启动新的下载任务，需同时满足以下两点:
       // - 没有达到并发量限制
       // - 还有更多 URL 需要下载
@@ -92,8 +105,16 @@ export class Downloader extends BaseDownload {
       }
     }
 
+    // 等待所有正在进行的任务完成
+    if (activePromises.length > 0) {
+      console.debug(`等待 ${activePromises.length} 个正在进行的任务完成...`);
+      await Promise.all(activePromises);
+    }
+
     if (this.isStopping) {
       this.emit('download:stop');
+      // 重置停止标志
+      this.isStopping = false;
     }
   }
 

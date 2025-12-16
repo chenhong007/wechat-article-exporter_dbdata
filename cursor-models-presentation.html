@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Cursor 模型最佳配置推荐</title>
+    
+    <!-- RevealJS CSS -->
+    <link rel="stylesheet" href="https://lf26-cdn-tos.bytecdntp.com/cdn/expire-1-M/reveal.js/4.3.0/reveal.css">
+    <link rel="stylesheet" href="https://lf9-cdn-tos.bytecdntp.com/cdn/expire-1-M/reveal.js/4.3.0/theme/black.min.css" id="theme">
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://lf6-cdn-tos.bytecdntp.com/cdn/expire-100-M/font-awesome/6.0.0/css/all.min.css">
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;700&family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            --primary-color: #ff9f43; /* Orange for 'Little Orange' */
+            --secondary-color: #1dd1a1; /* Teal/Green for balance */
+            --accent-color: #f368e0; /* Pinkish for 'Smart' vibe */
+            --bg-gradient: linear-gradient(135deg, #2d3436 0%, #000000 100%);
+        }
+
+        body {
+            font-family: 'Noto Sans SC', sans-serif;
+            background: #1a1a1a;
+        }
+
+        .reveal {
+            font-family: 'Noto Sans SC', sans-serif;
+        }
+
+        .reveal h1, .reveal h2, .reveal h3, .reveal h4, .reveal h5, .reveal h6 {
+            font-family: 'Noto Serif SC', serif;
+            text-transform: none;
+        }
+
+        /* Custom Card Style for slides */
+        .glass-card {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 1rem;
+            padding: 2rem;
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+        }
+
+        .gradient-text {
+            background: linear-gradient(to right, var(--primary-color), var(--accent-color));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            font-weight: bold;
+        }
+
+        .reveal .slides section {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* Triangle Diagram Styles */
+        .triangle-container {
+            position: relative;
+            width: 300px;
+            height: 260px;
+            margin: 0 auto;
+        }
+        
+        .triangle-point {
+            position: absolute;
+            background: rgba(255,255,255,0.1);
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 0.8em;
+            border: 1px solid var(--primary-color);
+            transition: all 0.3s ease;
+        }
+    </style>
+</head>
+<body>
+    <div class="reveal">
+        <div class="slides">
+            
+            <!-- Slide 1: Title -->
+            <section data-background-gradient="linear-gradient(to bottom right, #2c3e50, #000000)">
+                <div class="glass-card w-full max-w-4xl mx-auto text-center p-12">
+                    <div class="mb-6 text-5xl text-orange-400 opacity-80">
+                        <i class="fa-solid fa-layer-group"></i>
+                    </div>
+                    <h1 class="text-4xl md:text-6xl font-bold mb-4 tracking-wide text-white">
+                        Cursor 模型配置<br>
+                        <span class="gradient-text">最佳实践指南</span>
+                    </h1>
+                    <p class="text-xl text-gray-300 mt-8 font-light tracking-wider">
+                        基于 Cursor 团队成员 Eric 的分享
+                    </p>
+                    <div class="mt-12 flex justify-center items-center space-x-2">
+                        <span class="text-sm text-gray-400 border-t border-b border-gray-600 py-1 px-4">
+                            BY 小橘子
+                        </span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Slide 2: The Concept (Impossible Triangle) -->
+            <section data-transition="zoom">
+                <h2 class="text-3xl font-bold text-white mb-12 relative inline-block">
+                    AI 模型的不可能三角
+                    <div class="absolute -bottom-2 left-0 w-full h-1 bg-gradient-to-r from-orange-400 to-pink-500"></div>
+                </h2>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8 items-center max-w-6xl mx-auto">
+                    <div class="relative h-64 md:h-80 w-full flex justify-center items-center">
+                        <!-- CSS Triangle representation -->
+                        <div class="relative w-64 h-64">
+                            <div class="absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-4">
+                                <div class="bg-gray-800 border-2 border-orange-500 p-4 rounded-full w-24 h-24 flex flex-col items-center justify-center shadow-lg shadow-orange-500/20 z-10 fragment fade-down">
+                                    <i class="fa-solid fa-brain text-2xl text-orange-400 mb-1"></i>
+                                    <span class="text-xs font-bold">智能</span>
+                                </div>
+                            </div>
+                            <div class="absolute bottom-0 left-0 transform -translate-x-4 translate-y-4">
+                                <div class="bg-gray-800 border-2 border-green-500 p-4 rounded-full w-24 h-24 flex flex-col items-center justify-center shadow-lg shadow-green-500/20 z-10 fragment fade-right">
+                                    <i class="fa-solid fa-bolt text-2xl text-green-400 mb-1"></i>
+                                    <span class="text-xs font-bold">速度</span>
+                                </div>
+                            </div>
+                            <div class="absolute bottom-0 right-0 transform translate-x-4 translate-y-4">
+                                <div class="bg-gray-800 border-2 border-purple-500 p-4 rounded-full w-24 h-24 flex flex-col items-center justify-center shadow-lg shadow-purple-500/20 z-10 fragment fade-left">
+                                    <i class="fa-solid fa-coins text-2xl text-purple-400 mb-1"></i>
+                                    <span class="text-xs font-bold">成本</span>
+                                </div>
+                            </div>
+                            <!-- Connecting lines -->
+                            <svg class="absolute inset-0 w-full h-full pointer-events-none" style="z-index: 0;">
+                                <path d="M128 40 L 40 200 L 216 200 Z" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="2" stroke-dasharray="5,5"/>
+                            </svg>
+                        </div>
+                    </div>
+                    
+                    <div class="text-left space-y-6">
+                        <p class="text-gray-300 text-lg leading-relaxed fragment">
+                            在当前技术条件下，很难同时满足极致的<span class="text-orange-400 font-bold">智能</span>、极快的<span class="text-green-400 font-bold">速度</span>和极低的<span class="text-purple-400 font-bold">成本</span>。
+                        </p>
+                        <div class="glass-card p-4 border-l-4 border-l-orange-500 fragment">
+                            <h4 class="text-white font-bold mb-2 text-base"><i class="fa-solid fa-star mr-2 text-yellow-400"></i>最佳策略</h4>
+                            <p class="text-gray-400 text-sm">通过针对不同场景选择最适合的模型组合，打破"不可能三角"的限制。</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Slide 3: Planner Mode -->
+            <section data-background-gradient="linear-gradient(to bottom, #1e1e2e, #2d1b2e)">
+                <div class="flex flex-col h-full justify-center">
+                    <div class="flex items-center mb-8">
+                        <div class="bg-orange-600 p-3 rounded-lg mr-4">
+                            <i class="fa-solid fa-compass-drafting text-2xl text-white"></i>
+                        </div>
+                        <h3 class="text-3xl text-white font-bold">计划模式 <span class="text-lg opacity-60 font-normal ml-2">Planner Mode</span></h3>
+                    </div>
+
+                    <div class="glass-card w-full text-left transform transition hover:scale-[1.02] duration-300">
+                        <div class="flex justify-between items-start mb-6 border-b border-gray-700 pb-4">
+                            <span class="text-gray-400 text-sm uppercase tracking-widest">推荐配置</span>
+                            <span class="text-orange-400 font-bold text-xl"><i class="fa-solid fa-microchip mr-2"></i>GPT-5.2</span>
+                        </div>
+                        
+                        <div class="space-y-4">
+                            <div class="flex items-center">
+                                <span class="px-2 py-1 bg-gray-700 rounded text-xs text-gray-300 mr-3">版本</span>
+                                <span class="text-white font-mono text-lg">extra high</span>
+                            </div>
+                            
+                            <div class="mt-6 pt-4">
+                                <p class="text-gray-300 text-base leading-relaxed">
+                                    <i class="fa-solid fa-quote-left text-gray-600 mr-2"></i>
+                                    在规划阶段，我们需要最顶级的逻辑推理能力来拆解复杂任务。成本和速度是次要的，<strong class="text-white">准确性</strong>是核心。
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Slide 4: Agent Mode -->
+            <section data-background-gradient="linear-gradient(to bottom, #1e1e2e, #1b2d2a)">
+                <div class="flex flex-col h-full justify-center">
+                    <div class="flex items-center mb-8">
+                        <div class="bg-emerald-600 p-3 rounded-lg mr-4">
+                            <i class="fa-solid fa-robot text-2xl text-white"></i>
+                        </div>
+                        <h3 class="text-3xl text-white font-bold">智能体模式 <span class="text-lg opacity-60 font-normal ml-2">Agent Mode</span></h3>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 w-full">
+                        <div class="glass-card fragment fade-up">
+                            <div class="text-gray-400 text-xs uppercase mb-2">主脑 (推理)</div>
+                            <div class="text-2xl font-bold text-emerald-400 mb-1">Claude Opus 4.5</div>
+                            <div class="w-full bg-gray-700 h-1 mt-2 rounded-full overflow-hidden">
+                                <div class="bg-emerald-500 h-full" style="width: 95%"></div>
+                            </div>
+                            <p class="text-xs text-gray-500 mt-2">负责复杂决策与任务编排</p>
+                        </div>
+
+                        <div class="glass-card fragment fade-up">
+                            <div class="text-gray-400 text-xs uppercase mb-2">执行 (编码)</div>
+                            <div class="text-2xl font-bold text-blue-400 mb-1">Composer-1</div>
+                            <div class="w-full bg-gray-700 h-1 mt-2 rounded-full overflow-hidden">
+                                <div class="bg-blue-500 h-full" style="width: 85%"></div>
+                            </div>
+                            <p class="text-xs text-gray-500 mt-2">负责具体代码生成与实现</p>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-8 glass-card border-l-4 border-l-emerald-500 fragment">
+                        <p class="text-gray-300 text-sm">
+                            <i class="fa-solid fa-link text-emerald-500 mr-2"></i>
+                            <strong>强强联合：</strong> 利用 Claude 的长上下文和推理能力，配合 Composer 的代码专精。
+                        </p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Slide 5: Debug Mode -->
+            <section data-background-gradient="linear-gradient(to bottom, #1e1e2e, #2e1b1b)">
+                <div class="flex flex-col h-full justify-center">
+                    <div class="flex items-center mb-8">
+                        <div class="bg-red-600 p-3 rounded-lg mr-4">
+                            <i class="fa-solid fa-bug text-2xl text-white"></i>
+                        </div>
+                        <h3 class="text-3xl text-white font-bold">调试模式 <span class="text-lg opacity-60 font-normal ml-2">Debug Mode</span></h3>
+                    </div>
+
+                    <div class="glass-card w-full relative overflow-hidden">
+                        <div class="absolute top-0 right-0 -mt-4 -mr-4 w-24 h-24 bg-red-500 opacity-10 rounded-full blur-xl"></div>
+                        
+                        <div class="flex flex-col items-center py-6">
+                            <div class="text-4xl font-bold text-white mb-2">GPT-5.2</div>
+                            <div class="text-red-400 font-mono text-sm tracking-wider mb-6">EXTRA HIGH</div>
+                            
+                            <div class="grid grid-cols-3 gap-4 w-full text-center">
+                                <div class="p-3 bg-white/5 rounded-lg">
+                                    <i class="fa-solid fa-magnifying-glass text-gray-400 mb-2"></i>
+                                    <div class="text-xs text-gray-300">深度分析</div>
+                                </div>
+                                <div class="p-3 bg-white/5 rounded-lg">
+                                    <i class="fa-solid fa-bullseye text-gray-400 mb-2"></i>
+                                    <div class="text-xs text-gray-300">精准定位</div>
+                                </div>
+                                <div class="p-3 bg-white/5 rounded-lg">
+                                    <i class="fa-solid fa-code-branch text-gray-400 mb-2"></i>
+                                    <div class="text-xs text-gray-300">修复建议</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Slide 6: Q&A Mode -->
+            <section data-background-gradient="linear-gradient(to bottom, #1e1e2e, #252525)">
+                <div class="flex flex-col h-full justify-center">
+                    <div class="flex items-center mb-8">
+                        <div class="bg-purple-600 p-3 rounded-lg mr-4">
+                            <i class="fa-solid fa-comments text-2xl text-white"></i>
+                        </div>
+                        <h3 class="text-3xl text-white font-bold">问答模式 <span class="text-lg opacity-60 font-normal ml-2">Chat Mode</span></h3>
+                    </div>
+
+                    <div class="glass-card w-full flex items-center justify-between p-8">
+                        <div class="flex-1">
+                            <h4 class="text-2xl font-bold text-white mb-2">Composer-1</h4>
+                            <div class="flex items-center space-x-2 mb-4">
+                                <span class="bg-green-500/20 text-green-400 text-xs px-2 py-1 rounded">高响应速度</span>
+                                <span class="bg-purple-500/20 text-purple-400 text-xs px-2 py-1 rounded">低成本</span>
+                            </div>
+                            <p class="text-gray-400 text-sm">
+                                日常查询、代码片段解释、简单逻辑生成。不需要动用重型模型，主打一个<span class="text-white italic">"快"</span>。
+                            </p>
+                        </div>
+                        <div class="ml-6 flex-shrink-0">
+                            <div class="w-20 h-20 rounded-full border-4 border-purple-500/30 flex items-center justify-center animate-pulse">
+                                <i class="fa-solid fa-bolt text-3xl text-purple-400"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Slide 7: Summary -->
+            <section data-background-gradient="linear-gradient(to top left, #2d3436, #000000)">
+                <h2 class="text-3xl font-bold text-white mb-8">
+                    全景总结
+                </h2>
+                
+                <div class="overflow-hidden rounded-xl border border-gray-700 shadow-2xl w-full max-w-5xl">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="bg-gray-800 text-gray-400 text-sm uppercase">
+                                <th class="p-4 border-b border-gray-700">模式 Mode</th>
+                                <th class="p-4 border-b border-gray-700">推荐模型 Model</th>
+                                <th class="p-4 border-b border-gray-700 text-center">核心优势 Key Value</th>
+                            </tr>
+                        </thead>
+                        <tbody class="text-gray-300 text-base">
+                            <tr class="bg-gray-900/50 hover:bg-gray-800 transition">
+                                <td class="p-4 border-b border-gray-800 font-bold text-orange-400"><i class="fa-solid fa-compass-drafting w-6"></i> 计划</td>
+                                <td class="p-4 border-b border-gray-800 font-mono text-sm">gpt-5.2 extra high</td>
+                                <td class="p-4 border-b border-gray-800 text-center"><span class="bg-orange-500/20 text-orange-400 px-2 py-1 rounded text-xs">深思熟虑</span></td>
+                            </tr>
+                            <tr class="bg-gray-900/30 hover:bg-gray-800 transition">
+                                <td class="p-4 border-b border-gray-800 font-bold text-emerald-400"><i class="fa-solid fa-robot w-6"></i> 智能体</td>
+                                <td class="p-4 border-b border-gray-800 font-mono text-sm">claude opus 4.5 & composer-1</td>
+                                <td class="p-4 border-b border-gray-800 text-center"><span class="bg-emerald-500/20 text-emerald-400 px-2 py-1 rounded text-xs">全能执行</span></td>
+                            </tr>
+                            <tr class="bg-gray-900/50 hover:bg-gray-800 transition">
+                                <td class="p-4 border-b border-gray-800 font-bold text-red-400"><i class="fa-solid fa-bug w-6"></i> 调试</td>
+                                <td class="p-4 border-b border-gray-800 font-mono text-sm">gpt-5.2 extra high</td>
+                                <td class="p-4 border-b border-gray-800 text-center"><span class="bg-red-500/20 text-red-400 px-2 py-1 rounded text-xs">精准修复</span></td>
+                            </tr>
+                            <tr class="bg-gray-900/30 hover:bg-gray-800 transition">
+                                <td class="p-4 font-bold text-purple-400"><i class="fa-solid fa-comments w-6"></i> 问答</td>
+                                <td class="p-4 font-mono text-sm">composer-1</td>
+                                <td class="p-4 text-center"><span class="bg-purple-500/20 text-purple-400 px-2 py-1 rounded text-xs">极速响应</span></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="mt-8 text-sm text-gray-500 italic">
+                    <i class="fa-solid fa-check-circle mr-1 text-green-500"></i>
+                    实践验证的最佳组合
+                </div>
+                <div class="mt-4 text-xs text-gray-600">
+                     by 小橘子
+                </div>
+            </section>
+
+        </div>
+    </div>
+
+    <script>
+        // Check if Reveal is loaded before initializing
+        window.onload = function() {
+            if (window.Reveal) {
+                Reveal.initialize({
+                    controls: true,
+                    progress: true,
+                    center: true,
+                    hash: true,
+                    transition: 'slide', // none/fade/slide/convex/concave/zoom
+                    width: 1200,
+                    height: 700,
+                    margin: 0.04,
+                    minScale: 0.2,
+                    maxScale: 2.0
+                });
+            } else {
+                console.error("RevealJS failed to load");
+            }
+        };
+    </script>
+</body>
+</html>

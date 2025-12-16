@@ -714,6 +714,20 @@ function updateRow(article: Article) {
 const downloadBtnLoading = ref(false);
 const progress_1 = ref(0);
 const progress_2 = ref(0);
+let currentDownloader: Downloader | null = null;
+
+// 停止当前下载任务
+function stopDownload() {
+  if (currentDownloader) {
+    currentDownloader.stop();
+    toast.add({
+      color: 'orange',
+      title: '正在停止任务',
+      description: '等待当前进行中的请求完成...',
+      icon: 'i-heroicons-x-circle',
+    });
+  }
+}
 
 // 抓取文章HTML
 async function downloadArticleHTML() {
@@ -726,6 +740,8 @@ async function downloadArticleHTML() {
   const urls: string[] = selectedRows.map(article => article.link);
 
   const manager = new Downloader(urls);
+  currentDownloader = manager;
+  
   manager.on('download:progress', (url: string, success: boolean, status: DownloaderStatus) => {
     console.debug(
       `进度: (进行中:${status.pending.length} / 已完成:${status.completed.length} / 已失败:${status.failed.length} / 已删除:${status.deleted.length})`
@@ -762,6 +778,15 @@ async function downloadArticleHTML() {
     progress_1.value = 0;
     progress_2.value = urls.length;
   });
+  manager.on('download:stop', () => {
+    console.debug('任务已停止');
+    toast.add({
+      color: 'amber',
+      title: '【文章内容】抓取已停止',
+      description: `已完成:${progress_1.value}/${progress_2.value}`,
+      icon: 'i-heroicons-exclamation-triangle',
+    });
+  });
   manager.on('download:finish', (seconds: number, status: DownloaderStatus) => {
     console.debug('耗时:', formatElapsedTime(seconds));
     toast.add({
@@ -781,6 +806,7 @@ async function downloadArticleHTML() {
     alert((error as Error).message);
   } finally {
     downloadBtnLoading.value = false;
+    currentDownloader = null;
   }
 }
 
@@ -795,6 +821,8 @@ async function downloadArticleMetadata() {
   const urls: string[] = selectedRows.map(article => article.link);
 
   const manager = new Downloader(urls);
+  currentDownloader = manager;
+  
   manager.on('download:progress', (url: string, success: boolean, status: DownloaderStatus) => {
     console.debug(
       `进度: (进行中:${status.pending.length} / 已完成:${status.completed.length} / 已失败:${status.failed.length} / 已删除:${status.deleted.length})`
@@ -835,6 +863,15 @@ async function downloadArticleMetadata() {
     progress_1.value = 0;
     progress_2.value = urls.length;
   });
+  manager.on('download:stop', () => {
+    console.debug('任务已停止');
+    toast.add({
+      color: 'amber',
+      title: '【阅读量】抓取已停止',
+      description: `已完成:${progress_1.value}/${progress_2.value}`,
+      icon: 'i-heroicons-exclamation-triangle',
+    });
+  });
   manager.on('download:finish', (seconds: number, status: DownloaderStatus) => {
     console.debug('耗时:', formatElapsedTime(seconds));
     toast.add({
@@ -854,6 +891,7 @@ async function downloadArticleMetadata() {
     alert((error as Error).message);
   } finally {
     downloadBtnLoading.value = false;
+    currentDownloader = null;
   }
 }
 
@@ -868,6 +906,8 @@ async function downloadArticleComment() {
   const urls: string[] = selectedRows.map(article => article.link);
 
   const manager = new Downloader(urls);
+  currentDownloader = manager;
+  
   manager.on('download:progress', (url: string, success: boolean, status: DownloaderStatus) => {
     console.debug(
       `进度: (进行中:${status.pending.length} / 已完成:${status.completed.length} / 已失败:${status.failed.length} / 已删除:${status.deleted.length})`
@@ -888,6 +928,15 @@ async function downloadArticleComment() {
     progress_1.value = 0;
     progress_2.value = urls.length;
   });
+  manager.on('download:stop', () => {
+    console.debug('任务已停止');
+    toast.add({
+      color: 'amber',
+      title: '【留言内容】抓取已停止',
+      description: `已完成:${progress_1.value}/${progress_2.value}`,
+      icon: 'i-heroicons-exclamation-triangle',
+    });
+  });
   manager.on('download:finish', (seconds: number, status: DownloaderStatus) => {
     console.debug('耗时:', formatElapsedTime(seconds));
     toast.add({
@@ -907,6 +956,7 @@ async function downloadArticleComment() {
     alert((error as Error).message);
   } finally {
     downloadBtnLoading.value = false;
+    currentDownloader = null;
   }
 }
 
@@ -1316,6 +1366,15 @@ async function debug() {
               trailing-icon="i-heroicons-chevron-down-20-solid"
             />
           </ButtonGroup>
+          <UButton
+            v-if="downloadBtnLoading"
+            @click="stopDownload"
+            color="orange"
+            icon="i-heroicons-x-circle"
+            class="font-mono"
+          >
+            停止
+          </UButton>
           <ButtonGroup
             :items="[
               { label: 'Excel', event: 'export-article-excel' },

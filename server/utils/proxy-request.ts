@@ -49,8 +49,63 @@ export async function proxyMpRequest(options: RequestOptions) {
     await logRequest(requestId, request.clone());
   }
 
-  // 转发请求
-  const mpResponse = await fetch(request);
+  // 转发请求 - 添加重试机制
+  const maxRetries = parseInt(process.env.REQUEST_MAX_RETRIES || '3');
+  const retryDelay = parseInt(process.env.REQUEST_RETRY_DELAY || '1000');
+  const timeout = parseInt(process.env.REQUEST_TIMEOUT || '30000');
+  let mpResponse: Response | null = null;
+  let lastError: Error | null = null;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      // 设置超时控制
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+      mpResponse = await fetch(request.clone(), {
+        ...requestInit,
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+      
+      // 请求成功，跳出重试循环
+      if (isDev) {
+        console.log(`[proxyMpRequest] Request succeeded on attempt ${attempt}`);
+      }
+      break;
+    } catch (error) {
+      lastError = error as Error;
+      const errorMessage = lastError.message || '未知错误';
+      
+      // 判断错误类型
+      const isTLSError = errorMessage.includes('TLS') || errorMessage.includes('socket');
+      const isTimeoutError = errorMessage.includes('aborted') || errorMessage.includes('timeout');
+      
+      console.error(
+        `[proxyMpRequest] 尝试 ${attempt}/${maxRetries} 失败 [${options.endpoint}]:`,
+        isTLSError ? 'TLS连接错误' : isTimeoutError ? '请求超时' : errorMessage
+      );
+
+      // 如果不是最后一次重试，则等待后重试
+      if (attempt < maxRetries) {
+        const waitTime = retryDelay * attempt;
+        console.log(`[proxyMpRequest] ${waitTime}ms 后重试...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+      }
+    }
+  }
+
+  // 如果所有重试都失败，抛出错误
+  if (!mpResponse) {
+    const errorMsg = `请求失败（已重试${maxRetries}次）: ${lastError?.message || '未知错误'}`;
+    console.error(`[proxyMpRequest] ${errorMsg}`);
+    console.error('[proxyMpRequest] 提示: 如果频繁出现 TLS 连接错误，请检查:');
+    console.error('  1. 网络连接是否稳定');
+    console.error('  2. 是否需要配置代理（HTTP_PROXY/HTTPS_PROXY 环境变量）');
+    console.error('  3. 防火墙是否阻止了连接');
+    throw new Error(errorMsg);
+  }
 
   // 记录响应报文
   if (process.env.NUXT_DEBUG_MP_REQUEST && isDev) {
