@@ -17,6 +17,7 @@ import { formatElapsedTime, formatTimeStamp } from '#shared/utils/helpers';
 import GridActions from '~/components/grid/Actions.vue';
 import GridLoading from '~/components/grid/Loading.vue';
 import GridNoRows from '~/components/grid/NoRows.vue';
+import GridTitleWithCopy from '~/components/grid/TitleWithCopy.vue';
 import PreviewArticle from '~/components/preview/Article.vue';
 import toastFactory from '~/composables/toast';
 import { db } from '~/store/v2/db';
@@ -62,6 +63,7 @@ const columnDefs = ref<ColDef[]>([
     minWidth: 220,
     filter: 'agTextColumnFilter',
     tooltipField: 'title',
+    cellRenderer: GridTitleWithCopy,
   },
   {
     headerName: '链接',

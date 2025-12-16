@@ -27,14 +27,15 @@ import GridLinkWithIcon from '~/components/grid/LinkWithIcon.vue';
 import GridLoading from '~/components/grid/Loading.vue';
 import GridNoRows from '~/components/grid/NoRows.vue';
 import GridStatusBar from '~/components/grid/StatusBar.vue';
+import GridTitleWithCopy from '~/components/grid/TitleWithCopy.vue';
 import AccountSelectorForArticle from '~/components/selector/AccountSelectorForArticle.vue';
 import AccountMultiSelectorForArticle from '~/components/selector/AccountMultiSelectorForArticle.vue';
 import { isDev } from '~/config';
 import { articleDeleted, getArticleCache } from '~/store/v2/article';
-import { getCommentCache } from '~/store/v2/comment';
-import { getHtmlCache } from '~/store/v2/html';
+import { batchCheckCommentCache, getCommentCache } from '~/store/v2/comment';
+import { batchCheckHtmlCache, getHtmlCache } from '~/store/v2/html';
 import { type Info } from '~/store/v2/info';
-import { getMetadataCache, type Metadata } from '~/store/v2/metadata';
+import { batchGetMetadataCache, getMetadataCache, type Metadata } from '~/store/v2/metadata';
 import type { Preferences } from '~/types/preferences';
 import type { AppMsgEx } from '~/types/types';
 import { Downloader } from '~/utils/download/Downloader';
@@ -94,6 +95,7 @@ const columnDefs = ref<ColDef[]>([
     },
     tooltipField: 'title',
     minWidth: 200,
+    cellRenderer: GridTitleWithCopy,
   },
   {
     headerName: '封面',
@@ -582,7 +584,6 @@ async function refreshTableData() {
   }
 
   loading.value = true;
-  const articles: Article[] = [];
   const timeRangeFilter = getTimeRangeTimestamps();
 
   // 调试信息：输出时间范围
@@ -598,6 +599,8 @@ async function refreshTableData() {
   }
 
   try {
+    const startTime = performance.now();
+    
     // 优先从后端服务器批量获取数据
     const fakeids = selectedAccounts.value.map(acc => acc.fakeid);
     console.log('[数据加载] 尝试从后端服务器获取数据...');
@@ -605,7 +608,9 @@ async function refreshTableData() {
     const backendArticlesMap = await batchGetArticlesFromBackend(fakeids);
     console.log(`[数据加载] 从后端获取了 ${backendArticlesMap.size} 个公众号的数据`);
 
-    // 处理所有选中的公众号
+    // 第一步：收集所有文章数据（只做时间过滤和标题过滤）
+    const allArticlesWithAccount: { article: typeof backendArticlesMap extends Map<string, infer T> ? T[number] : never; account: Info }[] = [];
+    
     for (const account of selectedAccounts.value) {
       let data = backendArticlesMap.get(account.fakeid);
       
@@ -615,62 +620,80 @@ async function refreshTableData() {
         data = await getArticleCache(account.fakeid, Date.now());
       }
 
-      // 处理文章数据
+      // 时间过滤和标题过滤
       for (const article of data) {
-        // 时间过滤
         if (timeRangeFilter) {
           if (article.update_time < timeRangeFilter.start || article.update_time > timeRangeFilter.end) {
             continue;
           }
         }
-
-        const contentDownload = (await getHtmlCache(article.link)) !== undefined;
-        const commentDownload = (await getCommentCache(article.link)) !== undefined;
-        const metadata = await getMetadataCache(article.link);
         
-        let articleData: Article;
-        if (metadata) {
-          articleData = {
-            ...metadata,
-            ...article,
-            fakeid: account.fakeid,
-            contentDownload: contentDownload,
-            commentDownload: commentDownload,
-            account_name: account.nickname,
-          };
-        } else {
-          articleData = {
-            ...article,
-            fakeid: account.fakeid,
-            contentDownload: contentDownload,
-            commentDownload: commentDownload,
-            account_name: account.nickname,
-          };
-        }
-
-        // 标题搜索过滤
-        if (filterByTitle(articleData)) {
-          articles.push(articleData);
+        // 先做标题过滤（在批量查询缓存之前过滤掉不需要的文章）
+        const tempArticle = { ...article, title: article.title } as Article;
+        if (filterByTitle(tempArticle)) {
+          allArticlesWithAccount.push({ article, account });
         }
       }
     }
 
-    await sleep(200);
+    console.log(`[数据加载] 过滤后共 ${allArticlesWithAccount.length} 篇文章，开始批量查询缓存状态...`);
+
+    // 第二步：批量查询缓存状态（性能优化的关键）
+    const allUrls = allArticlesWithAccount.map(item => item.article.link);
+    
+    // 并行执行三个批量查询
+    const [htmlCacheSet, commentCacheSet, metadataMap] = await Promise.all([
+      batchCheckHtmlCache(allUrls),
+      batchCheckCommentCache(allUrls),
+      batchGetMetadataCache(allUrls),
+    ]);
+
+    console.log(`[数据加载] 缓存查询完成: HTML=${htmlCacheSet.size}, Comment=${commentCacheSet.size}, Metadata=${metadataMap.size}`);
+
+    // 第三步：组装最终数据
+    const articles: Article[] = allArticlesWithAccount.map(({ article, account }) => {
+      const contentDownload = htmlCacheSet.has(article.link);
+      const commentDownload = commentCacheSet.has(article.link);
+      const metadata = metadataMap.get(article.link);
+      
+      if (metadata) {
+        return {
+          ...metadata,
+          ...article,
+          fakeid: account.fakeid,
+          contentDownload,
+          commentDownload,
+          account_name: account.nickname,
+        };
+      } else {
+        return {
+          ...article,
+          fakeid: account.fakeid,
+          contentDownload,
+          commentDownload,
+          account_name: account.nickname,
+        };
+      }
+    });
+
     // 过滤已删除的文章（如果设置了隐藏）
     globalRowData = articles.filter(article => (hideDeleted.value ? !article.is_deleted : true));
     // 按发布时间倒序排列
     globalRowData.sort((a, b) => b.update_time - a.update_time);
     gridApi.value?.setGridOption('rowData', globalRowData);
     
+    const endTime = performance.now();
+    const loadTime = ((endTime - startTime) / 1000).toFixed(2);
+    
     // 显示加载结果
-    console.log(`[数据加载完成] 共 ${globalRowData.length} 篇文章`);
+    console.log(`[数据加载完成] 共 ${globalRowData.length} 篇文章，耗时 ${loadTime}s`);
     
     // 检查数据来源并给出友好提示
     const fromBackend = backendArticlesMap.size > 0;
     toast.add({
       color: 'green',
       title: fromBackend ? '数据加载完成（来自服务器）' : '数据加载完成（来自本地）',
-      description: `找到 ${globalRowData.length} 篇符合条件的文章`,
+      description: `找到 ${globalRowData.length} 篇符合条件的文章，耗时 ${loadTime}s`,
       icon: 'i-heroicons-check-circle',
     });
   } catch (error) {

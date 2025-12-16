@@ -1,0 +1,21 @@
+{
+  // 关闭自动保存，或改为 onFocusChange
+  "files.autoSave": "off",
+  
+  // 保存时格式化（如果开启了自动保存，建议关闭此项）
+  "editor.formatOnSave": true,
+  
+  // 使用 Biome 作为默认格式化工具
+  "editor.defaultFormatter": "biomejs.biome",
+  
+  // Vue 文件的格式化工具
+  "[vue]": {
+    "editor.defaultFormatter": "biomejs.biome"
+  },
+  
+  // TypeScript 文件的格式化工具
+  "[typescript]": {
+    "editor.defaultFormatter": "biomejs.biome"
+  }
+}
+

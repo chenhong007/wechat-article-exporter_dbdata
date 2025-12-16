@@ -202,7 +202,49 @@ export async function proxyMpRequest(options: RequestOptions) {
   if (!options.parseJson) {
     return finalResponse;
   } else {
-    return finalResponse.json();
+    // 先获取响应文本，然后安全地解析 JSON
+    const responseText = await finalResponse.text();
+    
+    // 检查 HTTP 状态码是否表示错误
+    if (!mpResponse.ok) {
+      console.error('[proxyMpRequest] HTTP 请求返回错误状态');
+      console.error('[proxyMpRequest] 请求地址:', options.endpoint);
+      console.error('[proxyMpRequest] 响应状态:', mpResponse.status, mpResponse.statusText);
+      if (responseText) {
+        console.error('[proxyMpRequest] 响应内容预览:', responseText.substring(0, 500));
+      }
+      
+      // 根据不同的状态码返回更友好的错误信息
+      if (mpResponse.status === 403) {
+        throw new Error('访问被拒绝(403)，可能是登录已过期或 Cookie 无效，请重新登录');
+      } else if (mpResponse.status === 401) {
+        throw new Error('认证失败(401)，请重新登录');
+      } else if (mpResponse.status === 404) {
+        throw new Error('请求的资源不存在(404)');
+      } else if (mpResponse.status >= 500) {
+        throw new Error(`微信服务器错误(${mpResponse.status})，请稍后重试`);
+      } else {
+        throw new Error(`请求失败: ${mpResponse.status} ${mpResponse.statusText}`);
+      }
+    }
+    
+    // 检查响应是否为空
+    if (!responseText || responseText.trim() === '') {
+      console.error('[proxyMpRequest] 响应体为空，无法解析 JSON');
+      console.error('[proxyMpRequest] 请求地址:', options.endpoint);
+      console.error('[proxyMpRequest] 响应状态:', mpResponse.status, mpResponse.statusText);
+      throw new Error('微信服务器返回空响应，请稍后重试');
+    }
+    
+    try {
+      return JSON.parse(responseText);
+    } catch (parseError) {
+      console.error('[proxyMpRequest] JSON 解析失败');
+      console.error('[proxyMpRequest] 请求地址:', options.endpoint);
+      console.error('[proxyMpRequest] 响应状态:', mpResponse.status, mpResponse.statusText);
+      console.error('[proxyMpRequest] 响应内容预览:', responseText.substring(0, 500));
+      throw new Error(`响应不是有效的 JSON 格式: ${parseError instanceof Error ? parseError.message : '未知错误'}`);
+    }
   }
 }
 
