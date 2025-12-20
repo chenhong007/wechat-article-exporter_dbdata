@@ -98,8 +98,16 @@
           <li
             v-for="credential in credentials"
             :key="credential.biz"
-            class="border rounded-md hover:ring ring-blue-500 hover:shadow-md transition-all duration-300 px-8 py-3"
+            class="relative border rounded-md hover:ring ring-blue-500 hover:shadow-md transition-all duration-300 px-8 py-3"
           >
+            <UButton
+              class="absolute top-2 right-2"
+              icon="i-lucide:x"
+              size="2xs"
+              color="gray"
+              variant="ghost"
+              @click="deleteCredential(credential.biz)"
+            />
             <p>公众号名称：{{ credential.nickname || '--' }}</p>
             <p>fakeid: {{ credential.biz }}</p>
             <p>获取时间: {{ credential.time }}</p>
@@ -157,6 +165,28 @@ const tabs = [
 const { checkLogin } = useLoginCheck();
 
 const credentials = useLocalStorage<ParsedCredential[]>('auto-detect-credentials:credentials', []);
+// 已删除的 biz 列表，用于过滤 WebSocket 推送的数据，记录删除时间用于过期判断
+interface DeletedCredential {
+  biz: string;
+  deletedAt: number;
+}
+const deletedBizList = useLocalStorage<DeletedCredential[]>('auto-detect-credentials:deleted-biz', []);
+// 删除记录的有效期（毫秒），超过此时间后可以再次显示
+const DELETE_EXPIRY_MS = 30 * 60 * 1000; // 30分钟
+
+// 检查某个 biz 是否在有效的删除列表中（未过期）
+function isDeletedAndNotExpired(biz: string): boolean {
+  const record = deletedBizList.value.find(d => d.biz === biz);
+  if (!record) return false;
+  // 检查是否过期
+  if (Date.now() - record.deletedAt > DELETE_EXPIRY_MS) {
+    // 已过期，从列表中移除
+    deletedBizList.value = deletedBizList.value.filter(d => d.biz !== biz);
+    return false;
+  }
+  return true;
+}
+
 for (const item of credentials.value) {
   item.valid = Date.now() < item.timestamp + 1000 * 60 * CREDENTIAL_LIVE_MINUTES;
 }
@@ -368,7 +398,10 @@ async function fetchCredentials() {
       added: Boolean(info),
     });
   }
-  credentials.value = _credentials.sort((a, b) => b.timestamp - a.timestamp);
+  // 过滤掉已删除且未过期的项
+  credentials.value = _credentials
+    .filter(c => !isDeletedAndNotExpired(c.biz))
+    .sort((a, b) => b.timestamp - a.timestamp);
 }
 
 const wsURL = ref('ws://127.0.0.1:65001');
@@ -431,7 +464,10 @@ async function startListenService(isManual = false) {
         added: Boolean(info),
       });
     }
-    credentials.value = _credentials.sort((a, b) => b.timestamp - a.timestamp);
+    // 过滤掉已删除且未过期的项
+    credentials.value = _credentials
+      .filter(c => !isDeletedAndNotExpired(c.biz))
+      .sort((a, b) => b.timestamp - a.timestamp);
   });
   ws.addEventListener('close', () => {
     wsMonitoring.value = false;
@@ -450,6 +486,19 @@ async function stopListenService() {
     _ws.close();
   }
   clearRetryTimer();
+}
+
+// 删除 credential
+function deleteCredential(biz: string) {
+  credentials.value = credentials.value.filter(c => c.biz !== biz);
+  // 添加到已删除列表，防止 WebSocket 推送时重新出现
+  const existingIndex = deletedBizList.value.findIndex(d => d.biz === biz);
+  if (existingIndex >= 0) {
+    // 已存在则更新删除时间
+    deletedBizList.value[existingIndex].deletedAt = Date.now();
+  } else {
+    deletedBizList.value.push({ biz, deletedAt: Date.now() });
+  }
 }
 
 async function addAccount(credential: ParsedCredential) {
