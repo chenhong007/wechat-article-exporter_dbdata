@@ -7,6 +7,22 @@
       <template #header>
         <div class="flex justify-between items-center">
           <h2 class="font-bold text-2xl">抓取 Credentials</h2>
+          <div class="flex items-center gap-2">
+            <UTooltip text="复制所有过期公众号的文章链接，在微信中打开以刷新">
+              <UButton
+                v-if="expiredCredentials.length > 0"
+                size="sm"
+                color="orange"
+                variant="soft"
+                :loading="batchRefreshing"
+                :disabled="batchRefreshing"
+                @click="batchRefreshCredentials"
+              >
+                <UIcon name="i-lucide:copy" class="size-4 mr-1" />
+                批量复制链接 ({{ expiredCredentials.length }})
+              </UButton>
+            </UTooltip>
+          </div>
         </div>
       </template>
 
@@ -112,8 +128,23 @@
             <p>fakeid: {{ credential.biz }}</p>
             <p>获取时间: {{ credential.time }}</p>
             <div class="flex items-center justify-between mt-4">
-              <span v-if="credential.valid" class="font-sans font-bold text-green-500">有效</span>
-              <span v-else class="font-sans font-bold text-rose-500">已过期</span>
+              <div class="flex items-center gap-2">
+                <span v-if="credential.valid" class="font-sans font-bold text-green-500">有效</span>
+                <span v-else class="font-sans font-bold text-rose-500">已过期</span>
+                <UTooltip v-if="!credential.valid" text="复制文章链接，在微信中打开以刷新">
+                  <UButton
+                    size="2xs"
+                    color="orange"
+                    variant="soft"
+                    :loading="credential.refreshing"
+                    :disabled="credential.refreshing"
+                    @click="refreshCredential(credential)"
+                  >
+                    <UIcon v-if="!credential.refreshing" name="i-lucide:copy" class="size-3" />
+                    复制
+                  </UButton>
+                </UTooltip>
+              </div>
               <UButton
                 size="xs"
                 :color="credential.added ? 'green' : 'blue'"
@@ -140,6 +171,7 @@ import toastFactory from '~/composables/toast';
 import useLoginCheck from '~/composables/useLoginCheck';
 import { CREDENTIAL_API_HOST, CREDENTIAL_LIVE_MINUTES } from '~/config';
 import { getInfoCache, type Info } from '~/store/v2/info';
+import { db } from '~/store/v2/db';
 import type { ParsedCredential } from '~/types/credential';
 
 export type CredentialState = 'active' | 'inactive' | 'warning';
@@ -165,26 +197,12 @@ const tabs = [
 const { checkLogin } = useLoginCheck();
 
 const credentials = useLocalStorage<ParsedCredential[]>('auto-detect-credentials:credentials', []);
-// 已删除的 biz 列表，用于过滤 WebSocket 推送的数据，记录删除时间用于过期判断
-interface DeletedCredential {
-  biz: string;
-  deletedAt: number;
-}
-const deletedBizList = useLocalStorage<DeletedCredential[]>('auto-detect-credentials:deleted-biz', []);
-// 删除记录的有效期（毫秒），超过此时间后可以再次显示
-const DELETE_EXPIRY_MS = 30 * 60 * 1000; // 30分钟
+// 已删除的 biz 列表，用于过滤 WebSocket 推送的数据，永久不显示已删除的项
+const deletedBizList = useLocalStorage<string[]>('auto-detect-credentials:deleted-biz-v2', []);
 
-// 检查某个 biz 是否在有效的删除列表中（未过期）
-function isDeletedAndNotExpired(biz: string): boolean {
-  const record = deletedBizList.value.find(d => d.biz === biz);
-  if (!record) return false;
-  // 检查是否过期
-  if (Date.now() - record.deletedAt > DELETE_EXPIRY_MS) {
-    // 已过期，从列表中移除
-    deletedBizList.value = deletedBizList.value.filter(d => d.biz !== biz);
-    return false;
-  }
-  return true;
+// 检查某个 biz 是否在删除列表中
+function isDeleted(biz: string): boolean {
+  return deletedBizList.value.includes(biz);
 }
 
 for (const item of credentials.value) {
@@ -192,8 +210,12 @@ for (const item of credentials.value) {
 }
 const validCredentialCount = computed(() => credentials.value.filter(c => c.valid).length);
 const pendingCredentialCount = computed(() => credentials.value.filter(c => c.valid && !c.added).length);
+const expiredCredentials = computed(() => credentials.value.filter(c => !c.valid));
 const toast = toastFactory();
 const modal = useModal();
+
+// 批量刷新状态
+const batchRefreshing = ref(false);
 
 const addingBiz = ref<string | null>(null);
 
@@ -398,10 +420,10 @@ async function fetchCredentials() {
       added: Boolean(info),
     });
   }
-  // 过滤掉已删除且未过期的项
-  credentials.value = _credentials
-    .filter(c => !isDeletedAndNotExpired(c.biz))
-    .sort((a, b) => b.timestamp - a.timestamp);
+    // 过滤掉已删除的项
+    credentials.value = _credentials
+      .filter(c => !isDeleted(c.biz))
+      .sort((a, b) => b.timestamp - a.timestamp);
 }
 
 const wsURL = ref('ws://127.0.0.1:65001');
@@ -464,9 +486,9 @@ async function startListenService(isManual = false) {
         added: Boolean(info),
       });
     }
-    // 过滤掉已删除且未过期的项
+    // 过滤掉已删除的项
     credentials.value = _credentials
-      .filter(c => !isDeletedAndNotExpired(c.biz))
+      .filter(c => !isDeleted(c.biz))
       .sort((a, b) => b.timestamp - a.timestamp);
   });
   ws.addEventListener('close', () => {
@@ -488,16 +510,12 @@ async function stopListenService() {
   clearRetryTimer();
 }
 
-// 删除 credential
+// 删除 credential（仅前端不显示，后端数据保持有效）
 function deleteCredential(biz: string) {
   credentials.value = credentials.value.filter(c => c.biz !== biz);
   // 添加到已删除列表，防止 WebSocket 推送时重新出现
-  const existingIndex = deletedBizList.value.findIndex(d => d.biz === biz);
-  if (existingIndex >= 0) {
-    // 已存在则更新删除时间
-    deletedBizList.value[existingIndex].deletedAt = Date.now();
-  } else {
-    deletedBizList.value.push({ biz, deletedAt: Date.now() });
+  if (!deletedBizList.value.includes(biz)) {
+    deletedBizList.value.push(biz);
   }
 }
 
@@ -533,6 +551,106 @@ async function addAccount(credential: ParsedCredential) {
     }
   } finally {
     addingBiz.value = null;
+  }
+}
+
+/**
+ * 获取公众号的第一篇文章链接（用于刷新Credential）
+ * @param biz 公众号的 __biz 参数
+ */
+async function getFirstArticleLink(biz: string): Promise<string | null> {
+  try {
+    // 从本地数据库获取该公众号的文章
+    const articles = await db.article
+      .where('fakeid')
+      .equals(biz)
+      .reverse()
+      .sortBy('create_time');
+    
+    if (articles.length > 0) {
+      // 返回最新的一篇文章链接
+      return articles[0].link;
+    }
+    return null;
+  } catch (error) {
+    console.error('获取文章链接失败:', error);
+    return null;
+  }
+}
+
+/**
+ * 复制单个Credential的文章链接
+ * @param credential 需要刷新的凭证
+ */
+async function refreshCredential(credential: ParsedCredential) {
+  if (credential.refreshing) return;
+  
+  credential.refreshing = true;
+  
+  try {
+    // 获取该公众号的文章链接
+    let articleLink: string | null | undefined = credential.articleLink;
+    
+    if (!articleLink) {
+      articleLink = await getFirstArticleLink(credential.biz);
+    }
+    
+    if (!articleLink) {
+      toast.error('获取失败', `公众号【${credential.nickname || credential.biz}】没有缓存的文章，请先手动打开一篇文章`);
+      return;
+    }
+    
+    // 复制链接到剪贴板
+    await navigator.clipboard.writeText(articleLink);
+    
+    toast.success('链接已复制', `请在微信中打开此链接以刷新 Credential（确保 wxdown-service 正在运行）`);
+  } catch (error: any) {
+    toast.error('复制失败', error?.message || '未知错误');
+  } finally {
+    credential.refreshing = false;
+  }
+}
+
+/**
+ * 批量复制所有过期Credential的文章链接
+ */
+async function batchRefreshCredentials() {
+  if (batchRefreshing.value) return;
+  
+  const expired = expiredCredentials.value;
+  if (expired.length === 0) {
+    toast.info('无需刷新', '没有过期的Credential');
+    return;
+  }
+  
+  batchRefreshing.value = true;
+  
+  try {
+    const links: string[] = [];
+    let failCount = 0;
+    
+    for (const credential of expired) {
+      const articleLink = await getFirstArticleLink(credential.biz);
+      
+      if (articleLink) {
+        links.push(`${credential.nickname || credential.biz}: ${articleLink}`);
+      } else {
+        failCount++;
+      }
+    }
+    
+    if (links.length > 0) {
+      // 复制所有链接到剪贴板
+      await navigator.clipboard.writeText(links.join('\n'));
+      toast.success('链接已复制', `已复制 ${links.length} 个文章链接，请在微信中逐个打开以刷新 Credential`);
+    }
+    if (failCount > 0) {
+      toast.warning('部分获取失败', `${failCount} 个公众号没有缓存的文章`);
+    }
+  } catch (error: any) {
+    toast.error('批量复制失败', error?.message || '未知错误');
+  } finally {
+    batchRefreshing.value = false;
   }
 }
 

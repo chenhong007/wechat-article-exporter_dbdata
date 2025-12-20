@@ -10,4 +10,8 @@ export interface ParsedCredential {
   time?: string;
   valid: boolean;
   added?: boolean;
+  // 刷新状态
+  refreshing?: boolean;
+  // 用于刷新的文章链接
+  articleLink?: string;
 }

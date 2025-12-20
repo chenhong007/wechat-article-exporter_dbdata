@@ -18,6 +18,7 @@ import { formatTimeStamp } from '#shared/utils/helpers';
 import { getArticleList } from '~/apis';
 import GlobalSearchAccountDialog from '~/components/global/SearchAccountDialog.vue';
 import GridAccountActions from '~/components/grid/AccountActions.vue';
+import GridCredentialStatus from '~/components/grid/CredentialStatus.vue';
 import GridLoading from '~/components/grid/Loading.vue';
 import GridLoadProgress from '~/components/grid/LoadProgress.vue';
 import GridNoRows from '~/components/grid/NoRows.vue';
@@ -432,6 +433,18 @@ const columnDefs = ref<ColDef[]>([
     cellClass: 'flex justify-center items-center',
     headerClass: 'justify-center',
     minWidth: 150,
+  },
+  {
+    colId: 'credential',
+    headerName: 'Credential',
+    field: 'fakeid',
+    sortable: false,
+    filter: false,
+    cellRenderer: GridCredentialStatus,
+    cellClass: 'flex justify-center items-center',
+    headerClass: 'justify-center',
+    minWidth: 150,
+    headerTooltip: '用于获取阅读量、留言等数据的凭证状态',
   },
   {
     colId: 'action',
