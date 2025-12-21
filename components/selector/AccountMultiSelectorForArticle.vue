@@ -15,7 +15,9 @@
     <template #label>
       <span v-if="selected && selected.length === 0" class="text-gray-500">请选择公众号 (可多选)</span>
       <span v-else-if="selected && selected.length === sortedAccountInfos.length" class="font-semibold">全部公众号 ({{ selected.length }}个)</span>
-      <span v-else-if="selected && selected.length > 0" class="font-semibold">已选择 {{ selected.length }} 个公众号</span>
+      <span v-else-if="selected && selected.length === 1" class="font-semibold">{{ selected[0].nickname }}</span>
+      <span v-else-if="selected && selected.length > 1 && selected.length <= 3" class="font-semibold">{{ selected.map(s => s.nickname).join('、') }}</span>
+      <span v-else-if="selected && selected.length > 3" class="font-semibold">{{ selected.slice(0, 2).map(s => s.nickname).join('、') }} 等{{ selected.length }}个</span>
     </template>
     <template #option="{ option: account }">
       <template v-if="account.isSelectAll">

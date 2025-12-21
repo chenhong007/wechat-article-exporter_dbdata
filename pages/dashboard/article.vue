@@ -454,7 +454,7 @@ useHead({
 
 // 筛选条件
 const selectedAccounts = ref<Info[]>([]);
-const timeRange = ref<'today' | 'week' | 'month' | 'custom' | 'all'>('all');
+const timeRange = ref<'today' | 'week' | 'month' | 'year' | 'custom' | 'all'>('all');
 const customStartDate = ref<Date | null>(null);
 const customEndDate = ref<Date | null>(null);
 const titleSearch = ref('');
@@ -466,6 +466,7 @@ const timeRangeOptions = [
   { label: '今天', value: 'today' },
   { label: '本周', value: 'week' },
   { label: '本月', value: 'month' },
+  { label: '本年', value: 'year' },
   { label: '自定义时间', value: 'custom' },
 ];
 
@@ -474,6 +475,39 @@ const searchModeOptions = [
   { label: 'AND (所有关键词)', value: 'and' },
   { label: 'OR (任一关键词)', value: 'or' },
 ];
+
+// 重置所有筛选条件
+function resetAllFilters() {
+  selectedAccounts.value = [];
+  timeRange.value = 'all';
+  customStartDate.value = null;
+  customEndDate.value = null;
+  titleSearch.value = '';
+  searchMode.value = 'and';
+  
+  // 清空表格数据
+  globalRowData = [];
+  gridApi.value?.setGridOption('rowData', []);
+  
+  // 清除 AG Grid 的列过滤器
+  gridApi.value?.setFilterModel(null);
+  
+  toast.add({
+    color: 'blue',
+    title: '已重置所有筛选条件',
+    icon: 'i-heroicons-arrow-path',
+  });
+}
+
+// 判断是否有任何筛选条件被设置
+const hasAnyFilter = computed(() => {
+  return selectedAccounts.value.length > 0 ||
+    timeRange.value !== 'all' ||
+    customStartDate.value !== null ||
+    customEndDate.value !== null ||
+    titleSearch.value.trim() !== '' ||
+    searchMode.value !== 'and';
+});
 
 // 计算显示的时间范围描述
 const timeRangeDescription = computed(() => {
@@ -499,6 +533,8 @@ const timeRangeDescription = computed(() => {
     return `本周 (${formatDate(startDate)} 至 ${formatDate(endDate)} ${formatTime(endDate)})`;
   } else if (timeRange.value === 'month') {
     return `本月 (${formatDate(startDate)} 至 ${formatDate(endDate)} ${formatTime(endDate)})`;
+  } else if (timeRange.value === 'year') {
+    return `本年 (${formatDate(startDate)} 至 ${formatDate(endDate)} ${formatTime(endDate)})`;
   } else if (timeRange.value === 'custom') {
     return `自定义 (${formatDate(startDate)} 至 ${formatDate(endDate)})`;
   }
@@ -540,6 +576,11 @@ function getTimeRangeTimestamps(): { start: number; end: number } | null {
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
       return { start: monthStart.getTime() / 1000, end: nowTimestamp };
     }
+    case 'year': {
+      // 本年：从本年1月1日0点到现在
+      const yearStart = new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0);
+      return { start: yearStart.getTime() / 1000, end: nowTimestamp };
+    }
     case 'custom':
       if (customStartDate.value && customEndDate.value) {
         // 自定义时间：从开始日期0点到结束日期23:59:59
@@ -561,10 +602,17 @@ function filterByTitle(article: Article): boolean {
     return true;
   }
 
+  // 支持中文逗号和英文逗号分隔多个关键词
   const keywords = titleSearch.value
     .trim()
-    .split(/\s+/)
-    .map(k => k.toLowerCase());
+    .split(/[,，]/)
+    .map(k => k.trim().toLowerCase())
+    .filter(k => k.length > 0);
+  
+  if (keywords.length === 0) {
+    return true;
+  }
+  
   const title = article.title.toLowerCase();
 
   if (searchMode.value === 'and') {
@@ -1334,10 +1382,10 @@ async function debug() {
         <!-- 第三行：标题搜索 -->
         <div class="flex flex-col sm:flex-row gap-3 w-full items-end">
           <div class="flex-1 min-w-[300px]">
-            <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 block">标题搜索（支持多个关键词，用空格分隔）</label>
+            <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 block">标题搜索（支持多个关键词，用逗号分隔）</label>
             <UInput
               v-model="titleSearch"
-              placeholder="输入标题关键词，多个关键词用空格分隔"
+              placeholder="输入标题关键词，多个关键词用逗号分隔"
               size="md"
               color="gray"
               icon="i-heroicons-magnifying-glass-20-solid"
@@ -1365,6 +1413,17 @@ async function debug() {
             class="w-full sm:w-auto whitespace-nowrap"
           >
             刷新数据
+          </UButton>
+          <UButton
+            @click="resetAllFilters"
+            :disabled="!hasAnyFilter"
+            size="md"
+            color="gray"
+            variant="outline"
+            icon="i-heroicons-x-mark-20-solid"
+            class="w-full sm:w-auto whitespace-nowrap"
+          >
+            重置条件
           </UButton>
         </div>
 

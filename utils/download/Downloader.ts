@@ -234,12 +234,14 @@ export class Downloader extends BaseDownload {
     }
 
     // 检查 credentials
+    // 如果当前文章的 Credential 未设置，不影响后续文章的采集
     try {
       this.validateCredential(article.fakeid);
     } catch (error) {
+      console.warn(`文章(url: ${url})的 Credential 未设置，跳过采集`);
       this.pending.delete(url);
       this.failed.add(url);
-      throw error;
+      return; // 直接返回，不抛出错误，避免影响后续文章的采集
     }
 
     for (let attempt = 0; attempt < this.options.maxRetries; attempt++) {
@@ -329,12 +331,14 @@ export class Downloader extends BaseDownload {
     }
 
     // 检查 credentials
+    // 如果当前文章的 Credential 未设置，不影响后续文章的采集
     try {
       this.validateCredential(article.fakeid);
     } catch (error) {
+      console.warn(`文章(url: ${url})的 Credential 未设置，跳过留言采集`);
       this.pending.delete(url);
       this.failed.add(url);
-      throw error;
+      return; // 直接返回，不抛出错误，避免影响后续文章的采集
     }
 
     // 留言数据不进行缓存
