@@ -787,6 +787,44 @@ const progress_1 = ref(0);
 const progress_2 = ref(0);
 let currentDownloader: Downloader | null = null;
 
+// Credential 验证进度追踪
+interface CredentialProgress {
+  validCount: number;      // 有效 credential 的文章数
+  invalidCount: number;    // 无效 credential 的文章数
+  validFakeids: Set<string>;    // 有效 credential 的公众号
+  invalidFakeids: Set<string>;  // 无效 credential 的公众号
+}
+const credentialProgress = ref<CredentialProgress>({
+  validCount: 0,
+  invalidCount: 0,
+  validFakeids: new Set(),
+  invalidFakeids: new Set(),
+});
+// 是否显示 credential 进度（仅在需要 credential 的任务中显示）
+const showCredentialProgress = ref(false);
+
+// 重置 credential 进度
+function resetCredentialProgress() {
+  credentialProgress.value = {
+    validCount: 0,
+    invalidCount: 0,
+    validFakeids: new Set(),
+    invalidFakeids: new Set(),
+  };
+}
+
+// 设置 credential 事件监听
+function setupCredentialListeners(manager: Downloader) {
+  manager.on('credential:valid', (fakeid: string, _url: string) => {
+    credentialProgress.value.validCount++;
+    credentialProgress.value.validFakeids.add(fakeid);
+  });
+  manager.on('credential:invalid', (fakeid: string, _url: string) => {
+    credentialProgress.value.invalidCount++;
+    credentialProgress.value.invalidFakeids.add(fakeid);
+  });
+}
+
 // 停止当前下载任务
 function stopDownload() {
   if (currentDownloader) {
@@ -894,6 +932,9 @@ async function downloadArticleMetadata() {
   const manager = new Downloader(urls);
   currentDownloader = manager;
   
+  // 设置 credential 事件监听
+  setupCredentialListeners(manager);
+  
   manager.on('download:progress', (url: string, success: boolean, status: DownloaderStatus) => {
     console.debug(
       `进度: (进行中:${status.pending.length} / 已完成:${status.completed.length} / 已失败:${status.failed.length} / 已删除:${status.deleted.length})`
@@ -933,6 +974,9 @@ async function downloadArticleMetadata() {
     console.debug('开始抓取【阅读量】...');
     progress_1.value = 0;
     progress_2.value = urls.length;
+    // 重置并显示 credential 进度
+    resetCredentialProgress();
+    showCredentialProgress.value = true;
   });
   manager.on('download:stop', () => {
     console.debug('任务已停止');
@@ -963,6 +1007,7 @@ async function downloadArticleMetadata() {
   } finally {
     downloadBtnLoading.value = false;
     currentDownloader = null;
+    showCredentialProgress.value = false;
   }
 }
 
@@ -978,6 +1023,9 @@ async function downloadArticleComment() {
 
   const manager = new Downloader(urls);
   currentDownloader = manager;
+  
+  // 设置 credential 事件监听
+  setupCredentialListeners(manager);
   
   manager.on('download:progress', (url: string, success: boolean, status: DownloaderStatus) => {
     console.debug(
@@ -998,6 +1046,9 @@ async function downloadArticleComment() {
     console.debug('开始抓取【留言内容】...');
     progress_1.value = 0;
     progress_2.value = urls.length;
+    // 重置并显示 credential 进度
+    resetCredentialProgress();
+    showCredentialProgress.value = true;
   });
   manager.on('download:stop', () => {
     console.debug('任务已停止');
@@ -1028,6 +1079,7 @@ async function downloadArticleComment() {
   } finally {
     downloadBtnLoading.value = false;
     currentDownloader = null;
+    showCredentialProgress.value = false;
   }
 }
 
@@ -1457,6 +1509,34 @@ async function debug() {
           >
             停止
           </UButton>
+          
+          <!-- Credential 验证进度实时显示 -->
+          <div 
+            v-if="showCredentialProgress" 
+            class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700"
+          >
+            <span class="text-xs font-medium text-slate-600 dark:text-slate-400">Credential:</span>
+            <div class="flex items-center gap-1.5">
+              <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                <span class="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
+                有效 {{ credentialProgress.validCount }}
+              </span>
+              <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400">
+                <span class="w-1.5 h-1.5 rounded-full bg-orange-500"></span>
+                无效 {{ credentialProgress.invalidCount }}
+              </span>
+            </div>
+            <UTooltip v-if="credentialProgress.invalidFakeids.size > 0">
+              <template #text>
+                <div class="text-xs">
+                  <div class="font-medium mb-1">缺少 Credential 的公众号:</div>
+                  <div>共 {{ credentialProgress.invalidFakeids.size }} 个公众号</div>
+                </div>
+              </template>
+              <UIcon name="i-heroicons-information-circle" class="size-4 text-slate-500 cursor-help" />
+            </UTooltip>
+          </div>
+          
           <ButtonGroup
             :items="[
               { label: 'Excel', event: 'export-article-excel' },

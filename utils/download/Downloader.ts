@@ -237,8 +237,12 @@ export class Downloader extends BaseDownload {
     // 如果当前文章的 Credential 未设置，不影响后续文章的采集
     try {
       this.validateCredential(article.fakeid);
+      // 触发 credential 验证成功事件
+      this.emit('credential:valid', article.fakeid, url);
     } catch (error) {
       console.warn(`文章(url: ${url})的 Credential 未设置，跳过采集`);
+      // 触发 credential 验证失败事件
+      this.emit('credential:invalid', article.fakeid, url);
       this.pending.delete(url);
       this.failed.add(url);
       return; // 直接返回，不抛出错误，避免影响后续文章的采集
@@ -334,8 +338,12 @@ export class Downloader extends BaseDownload {
     // 如果当前文章的 Credential 未设置，不影响后续文章的采集
     try {
       this.validateCredential(article.fakeid);
+      // 触发 credential 验证成功事件
+      this.emit('credential:valid', article.fakeid, url);
     } catch (error) {
       console.warn(`文章(url: ${url})的 Credential 未设置，跳过留言采集`);
+      // 触发 credential 验证失败事件
+      this.emit('credential:invalid', article.fakeid, url);
       this.pending.delete(url);
       this.failed.add(url);
       return; // 直接返回，不抛出错误，避免影响后续文章的采集
