@@ -33,7 +33,14 @@ import { getAllInfo, getInfoCache, type Info, importInfos } from '~/store/v2/inf
 import type { AccountManifest } from '~/types/account';
 import type { Preferences } from '~/types/preferences';
 import { exportAccountJsonFile } from '~/utils/exporter';
-import { syncArticlesToBackend, batchSyncArticlesToBackend } from '~/composables/useBackendSync';
+import { 
+  syncArticlesToBackend, 
+  batchSyncArticlesToBackend,
+  syncInfoToBackend,
+  restoreDataFromBackend,
+  hasLocalData,
+  hasBackendData,
+} from '~/composables/useBackendSync';
 
 useHead({
   title: `公众号管理 | ${websiteName}`,
@@ -216,11 +223,19 @@ async function loadAccountArticle(account: Info, loadMore = true) {
       .then(async (result) => {
         // 同步完成后，自动上传到后端服务器
         try {
+          // 同步文章数据
           const syncResult = await syncArticlesToBackend(account.fakeid, false);
           if (syncResult.success) {
             console.log(`[后端同步] ${account.nickname}: ${syncResult.message}`);
           } else {
             console.warn(`[后端同步] ${account.nickname}: ${syncResult.message}`);
+          }
+          
+          // 同步公众号信息
+          const infoCache = await getInfoCache(account.fakeid);
+          if (infoCache) {
+            await syncInfoToBackend(infoCache);
+            console.log(`[后端同步] ${account.nickname}: 公众号信息已同步`);
           }
         } catch (error: any) {
           console.error(`[后端同步失败] ${account.nickname}:`, error);
@@ -565,11 +580,93 @@ const gridOptions: GridOptions = {
 };
 
 const gridApi = shallowRef<GridApi | null>(null);
-function onGridReady(params: GridReadyEvent) {
+async function onGridReady(params: GridReadyEvent) {
   gridApi.value = params.api;
 
   restoreColumnState();
+  
+  // 检查本地是否有数据，如果没有则尝试从后端恢复
+  await checkAndRestoreData();
+  
   refresh();
+}
+
+// 数据恢复状态
+const isRestoring = ref(false);
+const showRestorePrompt = ref(false);
+const backendDataInfo = ref<{ accountCount: number; totalArticles: number } | null>(null);
+
+/**
+ * 检查本地数据并提示恢复
+ */
+async function checkAndRestoreData() {
+  try {
+    // 检查本地是否有数据
+    const hasLocal = await hasLocalData();
+    
+    if (!hasLocal) {
+      // 本地没有数据，检查后端是否有数据
+      const backendInfo = await hasBackendData();
+      
+      if (backendInfo.hasData) {
+        // 后端有数据，显示恢复提示
+        backendDataInfo.value = {
+          accountCount: backendInfo.accountCount,
+          totalArticles: backendInfo.totalArticles,
+        };
+        showRestorePrompt.value = true;
+      }
+    }
+  } catch (error) {
+    console.error('检查数据状态失败:', error);
+  }
+}
+
+/**
+ * 从后端恢复数据
+ */
+async function restoreFromBackend() {
+  isRestoring.value = true;
+  showRestorePrompt.value = false;
+  
+  try {
+    const result = await restoreDataFromBackend();
+    
+    if (result.success) {
+      toast.success('数据恢复成功', result.message);
+      await refresh();
+    } else {
+      toast.error('数据恢复失败', result.message);
+    }
+  } catch (error: any) {
+    console.error('恢复数据失败:', error);
+    toast.error('数据恢复失败', error.message || '未知错误');
+  } finally {
+    isRestoring.value = false;
+  }
+}
+
+/**
+ * 手动触发数据恢复（从服务器恢复）
+ */
+async function manualRestoreFromBackend() {
+  isRestoring.value = true;
+  
+  try {
+    const result = await restoreDataFromBackend();
+    
+    if (result.success) {
+      toast.success('数据恢复成功', result.message);
+      await refresh();
+    } else {
+      toast.warning('恢复提示', result.message || '后端没有可恢复的数据');
+    }
+  } catch (error: any) {
+    console.error('恢复数据失败:', error);
+    toast.error('数据恢复失败', error.message || '未知错误');
+  } finally {
+    isRestoring.value = false;
+  }
 }
 
 function onColumnStateChange() {
@@ -757,6 +854,15 @@ function exportAccount() {
           @click="loadSelectedAccountArticle"
           >同步</UButton
         >
+        <!-- 从服务器恢复数据 -->
+        <UButton
+          color="gray"
+          icon="i-lucide:cloud-download"
+          variant="outline"
+          :loading="isRestoring"
+          @click="manualRestoreFromBackend"
+          >从服务器恢复</UButton
+        >
         <!-- 开发模式：数据验证工具 -->
         <UButton
           v-if="isDev"
@@ -785,5 +891,55 @@ function exportAccount() {
 
     <!-- 添加公众号弹框 -->
     <GlobalSearchAccountDialog ref="searchAccountDialogRef" @select:account="onSelectAccount" />
+
+    <!-- 数据恢复提示弹框 -->
+    <UModal v-model:open="showRestorePrompt">
+      <template #content>
+        <div class="p-6">
+          <div class="flex items-center gap-3 mb-4">
+            <div class="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100">
+              <UIcon name="i-lucide:cloud-download" class="text-blue-600 text-xl" />
+            </div>
+            <h3 class="text-lg font-semibold text-gray-900">发现云端数据</h3>
+          </div>
+          
+          <p class="text-gray-600 mb-4">
+            检测到本地没有公众号数据，但服务器上有您之前采集的数据：
+          </p>
+          
+          <div class="bg-gray-50 rounded-lg p-4 mb-6">
+            <div class="flex justify-between items-center mb-2">
+              <span class="text-gray-500">公众号数量</span>
+              <span class="font-semibold text-gray-900">{{ backendDataInfo?.accountCount || 0 }} 个</span>
+            </div>
+            <div class="flex justify-between items-center">
+              <span class="text-gray-500">文章数量</span>
+              <span class="font-semibold text-gray-900">{{ backendDataInfo?.totalArticles || 0 }} 篇</span>
+            </div>
+          </div>
+          
+          <p class="text-sm text-gray-500 mb-6">
+            是否从服务器恢复这些数据到本地浏览器？
+          </p>
+          
+          <div class="flex justify-end gap-3">
+            <UButton
+              color="gray"
+              variant="outline"
+              @click="showRestorePrompt = false"
+            >
+              暂不恢复
+            </UButton>
+            <UButton
+              color="blue"
+              :loading="isRestoring"
+              @click="restoreFromBackend"
+            >
+              立即恢复
+            </UButton>
+          </div>
+        </div>
+      </template>
+    </UModal>
   </div>
 </template>

@@ -4,7 +4,9 @@
  */
 
 import type { AppMsgExWithFakeID } from '~/types/types';
+import type { Info } from '~/store/v2/info';
 import { getArticleCache } from '~/store/v2/article';
+import { db } from '~/store/v2/db';
 
 /**
  * 本地缓存的过期时间（毫秒）
@@ -363,6 +365,149 @@ export async function getBackendStorageStats(): Promise<{
   }
 }
 
+/**
+ * 同步公众号信息到后端
+ */
+export async function syncInfoToBackend(info: Info): Promise<{
+  success: boolean;
+  message: string;
+}> {
+  try {
+    await $fetch('/api/web/sync/info', {
+      method: 'POST',
+      body: { info },
+    });
+
+    return {
+      success: true,
+      message: '成功同步公众号信息',
+    };
+  } catch (error: any) {
+    console.error('同步公众号信息失败:', error);
+    return {
+      success: false,
+      message: error.message || '同步失败',
+    };
+  }
+}
+
+/**
+ * 从后端恢复所有数据到本地 IndexedDB
+ * 当本地数据为空时调用此函数恢复数据
+ */
+export async function restoreDataFromBackend(): Promise<{
+  success: boolean;
+  message: string;
+  accountCount: number;
+  articleCount: number;
+}> {
+  try {
+    // 从后端获取所有公众号数据
+    const response = await $fetch<{
+      success: boolean;
+      accounts: Array<{
+        info: Info;
+        articles: AppMsgExWithFakeID[];
+        lastSync: number | null;
+        totalCount: number;
+      }>;
+      count: number;
+    }>('/api/web/data/all-accounts');
+
+    if (!response.success || response.count === 0) {
+      return {
+        success: false,
+        message: '后端没有可恢复的数据',
+        accountCount: 0,
+        articleCount: 0,
+      };
+    }
+
+    let totalArticles = 0;
+
+    // 使用事务批量写入数据
+    await db.transaction('rw', ['info', 'article'], async () => {
+      for (const account of response.accounts) {
+        // 恢复公众号信息
+        await db.info.put(account.info);
+
+        // 恢复文章数据
+        for (const article of account.articles) {
+          await db.article.put(article, `${account.info.fakeid}:${article.aid}`);
+          totalArticles++;
+        }
+
+        // 更新缓存元数据
+        setCacheMeta({
+          fakeid: account.info.fakeid,
+          lastSync: Date.now(),
+          articleCount: account.articles.length,
+        });
+      }
+    });
+
+    return {
+      success: true,
+      message: `成功恢复 ${response.count} 个公众号的 ${totalArticles} 篇文章`,
+      accountCount: response.count,
+      articleCount: totalArticles,
+    };
+  } catch (error: any) {
+    console.error('从后端恢复数据失败:', error);
+    return {
+      success: false,
+      message: error.message || '恢复数据失败',
+      accountCount: 0,
+      articleCount: 0,
+    };
+  }
+}
+
+/**
+ * 检查本地是否有数据
+ */
+export async function hasLocalData(): Promise<boolean> {
+  try {
+    const count = await db.info.count();
+    return count > 0;
+  } catch (error) {
+    console.error('检查本地数据失败:', error);
+    return false;
+  }
+}
+
+/**
+ * 检查后端是否有可恢复的数据
+ */
+export async function hasBackendData(): Promise<{
+  hasData: boolean;
+  accountCount: number;
+  totalArticles: number;
+}> {
+  try {
+    const stats = await getBackendStorageStats();
+    if (stats) {
+      return {
+        hasData: stats.accountCount > 0,
+        accountCount: stats.accountCount,
+        totalArticles: stats.totalArticles,
+      };
+    }
+    return {
+      hasData: false,
+      accountCount: 0,
+      totalArticles: 0,
+    };
+  } catch (error) {
+    console.error('检查后端数据失败:', error);
+    return {
+      hasData: false,
+      accountCount: 0,
+      totalArticles: 0,
+    };
+  }
+}
+
 export default function useBackendSync() {
   return {
     syncArticlesToBackend,
@@ -372,6 +517,10 @@ export default function useBackendSync() {
     clearCacheMeta,
     isCacheValid,
     getBackendStorageStats,
+    syncInfoToBackend,
+    restoreDataFromBackend,
+    hasLocalData,
+    hasBackendData,
   };
 }
 

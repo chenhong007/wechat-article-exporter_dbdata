@@ -98,12 +98,15 @@ export async function importFromSqlite(file: File): Promise<{
         console.warn('导入 info 表失败:', e);
       }
 
-      // 导入 article 表
+      // 导入 article 表（同时导入统计数据到 metadata）
       try {
         const articleResult = sqlDb.exec('SELECT * FROM article');
         if (articleResult.length > 0) {
           const columns = articleResult[0].columns;
           const values = articleResult[0].values;
+          
+          // 检查是否包含统计数据字段
+          const hasStatsFields = columns.includes('readNum');
           
           for (const row of values) {
             const record: any = {};
@@ -124,6 +127,30 @@ export async function importFromSqlite(file: File): Promise<{
             const key = `${record.fakeid}:${record.aid}`;
             await db.article.put(record, key);
             stats.article++;
+            
+            // 如果包含统计数据字段且有 link，同时写入 metadata 表
+            if (hasStatsFields && record.link) {
+              const hasAnyStats = (record.readNum || 0) > 0 || 
+                                  (record.oldLikeNum || 0) > 0 || 
+                                  (record.shareNum || 0) > 0 || 
+                                  (record.likeNum || 0) > 0 || 
+                                  (record.commentNum || 0) > 0;
+              
+              if (hasAnyStats) {
+                const metadataRecord = {
+                  url: record.link,
+                  fakeid: record.fakeid,
+                  title: record.title || '',
+                  readNum: record.readNum || 0,
+                  oldLikeNum: record.oldLikeNum || 0,
+                  shareNum: record.shareNum || 0,
+                  likeNum: record.likeNum || 0,
+                  commentNum: record.commentNum || 0,
+                };
+                await db.metadata.put(metadataRecord);
+                stats.metadata++;
+              }
+            }
           }
         }
       } catch (e) {
@@ -270,28 +297,59 @@ export async function importFromSqlite(file: File): Promise<{
         console.warn('导入 html 表失败:', e);
       }
 
-      // 导入 metadata 表
+      // 导入 metadata 表（支持新旧两种格式）
       try {
         const metadataResult = sqlDb.exec('SELECT * FROM metadata');
         if (metadataResult.length > 0) {
           const columns = metadataResult[0].columns;
           const values = metadataResult[0].values;
           
+          // 检查是否是新格式（有 readNum 字段）还是旧格式（有 data 字段）
+          const hasNewFormat = columns.includes('readNum');
+          const hasOldFormat = columns.includes('data');
+          
           for (const row of values) {
-            const record: any = {};
-            columns.forEach((col, idx) => {
-              let value = row[idx];
-              if (typeof value === 'string' && (value.startsWith('{') || value.startsWith('['))) {
-                try {
-                  value = JSON.parse(value);
-                } catch (e) {
-                  // 保持原值
+            let record: any = {};
+            
+            if (hasNewFormat) {
+              // 新格式：各字段独立存储
+              columns.forEach((col, idx) => {
+                record[col] = row[idx];
+              });
+            } else if (hasOldFormat) {
+              // 旧格式：从 data JSON 字段解析
+              columns.forEach((col, idx) => {
+                if (col === 'data' && typeof row[idx] === 'string') {
+                  try {
+                    const parsed = JSON.parse(row[idx] as string);
+                    record = { ...record, ...parsed };
+                  } catch (e) {
+                    // 解析失败，保持原值
+                  }
+                } else {
+                  record[col] = row[idx];
                 }
-              }
-              record[col] = value;
-            });
-            await db.metadata.put(record);
-            stats.metadata++;
+              });
+            } else {
+              // 未知格式，尝试通用解析
+              columns.forEach((col, idx) => {
+                let value = row[idx];
+                if (typeof value === 'string' && (value.startsWith('{') || value.startsWith('['))) {
+                  try {
+                    value = JSON.parse(value);
+                  } catch (e) {
+                    // 保持原值
+                  }
+                }
+                record[col] = value;
+              });
+            }
+            
+            // 确保必要的字段存在
+            if (record.url) {
+              await db.metadata.put(record);
+              stats.metadata++;
+            }
           }
         }
       } catch (e) {
@@ -411,6 +469,7 @@ export async function exportToSqlite(): Promise<Blob> {
     );
   `);
 
+  // article 表包含文章基础信息和统计数据（阅读/点赞/分享/喜欢/留言数）
   sqlDb.run(`
     CREATE TABLE IF NOT EXISTS article (
       key TEXT PRIMARY KEY,
@@ -433,7 +492,12 @@ export async function exportToSqlite(): Promise<Blob> {
       media_duration INTEGER,
       tagid TEXT,
       title TEXT,
-      update_time INTEGER
+      update_time INTEGER,
+      readNum INTEGER DEFAULT 0,
+      oldLikeNum INTEGER DEFAULT 0,
+      shareNum INTEGER DEFAULT 0,
+      likeNum INTEGER DEFAULT 0,
+      commentNum INTEGER DEFAULT 0
     );
   `);
 
@@ -494,11 +558,17 @@ export async function exportToSqlite(): Promise<Blob> {
     );
   `);
 
+  // metadata 表结构优化：将统计字段独立存储，便于查询和分析
   sqlDb.run(`
     CREATE TABLE IF NOT EXISTS metadata (
       url TEXT PRIMARY KEY,
-      data TEXT,
-      fakeid TEXT
+      fakeid TEXT,
+      title TEXT,
+      readNum INTEGER DEFAULT 0,
+      oldLikeNum INTEGER DEFAULT 0,
+      shareNum INTEGER DEFAULT 0,
+      likeNum INTEGER DEFAULT 0,
+      commentNum INTEGER DEFAULT 0
     );
   `);
 
@@ -539,13 +609,25 @@ export async function exportToSqlite(): Promise<Blob> {
     );
   }
 
-  // 导出 article 表数据
+  // 导出 article 表数据（包含统计数据）
   const articleData = await db.article.toArray();
+  // 获取所有 metadata 数据，用于关联统计数据
+  const metadataForArticle = await db.metadata.toArray();
+  const metadataMap = new Map<string, any>();
+  for (const m of metadataForArticle) {
+    if (m.url) {
+      metadataMap.set(m.url, m);
+    }
+  }
+  
   for (const record of articleData) {
     const key = `${record.fakeid}:${record.aid}`;
+    // 尝试从 metadata 获取统计数据（通过 link 关联）
+    const metadata = record.link ? metadataMap.get(record.link) : null;
+    
     sqlDb.run(
-      `INSERT INTO article (key, fakeid, aid, album_id, appmsg_album_infos, appmsgid, checking_status, copyright_stat, copyright_type, cover, create_time, digest, has_red_packet_cover, is_deleted, item_show_type, itemidx, link, media_duration, tagid, title, update_time) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO article (key, fakeid, aid, album_id, appmsg_album_infos, appmsgid, checking_status, copyright_stat, copyright_type, cover, create_time, digest, has_red_packet_cover, is_deleted, item_show_type, itemidx, link, media_duration, tagid, title, update_time, readNum, oldLikeNum, shareNum, likeNum, commentNum) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         key,
         record.fakeid,
@@ -568,6 +650,12 @@ export async function exportToSqlite(): Promise<Blob> {
         record.tagid ? JSON.stringify(record.tagid) : null,
         record.title,
         record.update_time || null,
+        // 统计数据字段
+        metadata?.readNum || 0,
+        metadata?.oldLikeNum || 0,
+        metadata?.shareNum || 0,
+        metadata?.likeNum || 0,
+        metadata?.commentNum || 0,
       ]
     );
   }
@@ -624,12 +712,22 @@ export async function exportToSqlite(): Promise<Blob> {
     );
   }
 
-  // 导出 metadata 表数据
+  // 导出 metadata 表数据（各统计字段独立存储）
   const metadataData = await db.metadata.toArray();
   for (const record of metadataData) {
     sqlDb.run(
-      `INSERT INTO metadata (url, data, fakeid) VALUES (?, ?, ?)`,
-      [record.url, JSON.stringify(record), record.fakeid]
+      `INSERT INTO metadata (url, fakeid, title, readNum, oldLikeNum, shareNum, likeNum, commentNum) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        record.url,
+        record.fakeid || null,
+        record.title || null,
+        record.readNum || 0,
+        record.oldLikeNum || 0,
+        record.shareNum || 0,
+        record.likeNum || 0,
+        record.commentNum || 0,
+      ]
     );
   }
 
@@ -668,6 +766,220 @@ export async function exportToSqlite(): Promise<Blob> {
 
   // 转换为 Blob
   return new Blob([uint8Array], { type: 'application/x-sqlite3' });
+}
+
+/**
+ * 导出 metadata 数据为 CSV 格式
+ * @returns Blob 对象，可以用于下载
+ */
+export async function exportMetadataToCsv(): Promise<Blob> {
+  const metadataData = await db.metadata.toArray();
+  
+  // CSV 表头
+  const headers = ['url', 'fakeid', 'title', 'readNum', 'oldLikeNum', 'shareNum', 'likeNum', 'commentNum'];
+  
+  // 转义 CSV 字段（处理逗号、引号、换行符）
+  const escapeCSVField = (field: any): string => {
+    if (field === null || field === undefined) {
+      return '';
+    }
+    const str = String(field);
+    // 如果包含逗号、引号或换行符，需要用引号包裹并转义内部引号
+    if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
+      return `"${str.replace(/"/g, '""')}"`;
+    }
+    return str;
+  };
+  
+  // 生成 CSV 内容
+  const csvLines: string[] = [];
+  
+  // 添加表头
+  csvLines.push(headers.join(','));
+  
+  // 添加数据行
+  for (const record of metadataData) {
+    const row = [
+      escapeCSVField(record.url),
+      escapeCSVField(record.fakeid),
+      escapeCSVField(record.title),
+      escapeCSVField(record.readNum || 0),
+      escapeCSVField(record.oldLikeNum || 0),
+      escapeCSVField(record.shareNum || 0),
+      escapeCSVField(record.likeNum || 0),
+      escapeCSVField(record.commentNum || 0),
+    ];
+    csvLines.push(row.join(','));
+  }
+  
+  // 添加 BOM 以支持 Excel 正确识别 UTF-8
+  const BOM = '\uFEFF';
+  const csvContent = BOM + csvLines.join('\n');
+  
+  return new Blob([csvContent], { type: 'text/csv;charset=utf-8' });
+}
+
+/**
+ * 从 CSV 文件导入 metadata 数据
+ * @param file - CSV 文件
+ * @returns 导入的记录数
+ */
+export async function importMetadataFromCsv(file: File): Promise<number> {
+  const text = await file.text();
+  
+  // 移除可能存在的 BOM
+  const content = text.replace(/^\uFEFF/, '');
+  
+  // 解析 CSV
+  const lines = content.split(/\r?\n/).filter(line => line.trim());
+  
+  if (lines.length < 2) {
+    throw new Error('CSV 文件格式无效：至少需要表头和一行数据');
+  }
+  
+  // 解析表头
+  const headers = parseCSVLine(lines[0]);
+  
+  // 验证必要的字段
+  if (!headers.includes('url')) {
+    throw new Error('CSV 文件缺少必要的 url 字段');
+  }
+  
+  let importCount = 0;
+  
+  await db.transaction('rw', 'metadata', async () => {
+    for (let i = 1; i < lines.length; i++) {
+      const values = parseCSVLine(lines[i]);
+      
+      if (values.length !== headers.length) {
+        console.warn(`第 ${i + 1} 行字段数量不匹配，跳过`);
+        continue;
+      }
+      
+      const record: any = {};
+      headers.forEach((header, idx) => {
+        let value: any = values[idx];
+        
+        // 数字字段转换
+        if (['readNum', 'oldLikeNum', 'shareNum', 'likeNum', 'commentNum'].includes(header)) {
+          value = parseInt(value, 10) || 0;
+        }
+        
+        record[header] = value;
+      });
+      
+      if (record.url) {
+        await db.metadata.put(record);
+        importCount++;
+      }
+    }
+  });
+  
+  return importCount;
+}
+
+/**
+ * 解析 CSV 行（处理引号包裹的字段）
+ */
+function parseCSVLine(line: string): string[] {
+  const result: string[] = [];
+  let current = '';
+  let inQuotes = false;
+  
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    const nextChar = line[i + 1];
+    
+    if (inQuotes) {
+      if (char === '"') {
+        if (nextChar === '"') {
+          // 转义的引号
+          current += '"';
+          i++;
+        } else {
+          // 结束引号
+          inQuotes = false;
+        }
+      } else {
+        current += char;
+      }
+    } else {
+      if (char === '"') {
+        inQuotes = true;
+      } else if (char === ',') {
+        result.push(current);
+        current = '';
+      } else {
+        current += char;
+      }
+    }
+  }
+  
+  // 添加最后一个字段
+  result.push(current);
+  
+  return result;
+}
+
+/**
+ * 导出 metadata 数据为 JSON 格式
+ * @returns Blob 对象，可以用于下载
+ */
+export async function exportMetadataToJson(): Promise<Blob> {
+  const metadataData = await db.metadata.toArray();
+  
+  // 格式化输出，便于阅读
+  const jsonContent = JSON.stringify(metadataData, null, 2);
+  
+  return new Blob([jsonContent], { type: 'application/json;charset=utf-8' });
+}
+
+/**
+ * 从 JSON 文件导入 metadata 数据
+ * @param file - JSON 文件
+ * @returns 导入的记录数
+ */
+export async function importMetadataFromJson(file: File): Promise<number> {
+  const text = await file.text();
+  
+  let data: any[];
+  try {
+    data = JSON.parse(text);
+  } catch (e) {
+    throw new Error('JSON 文件格式无效');
+  }
+  
+  if (!Array.isArray(data)) {
+    throw new Error('JSON 文件应为数组格式');
+  }
+  
+  let importCount = 0;
+  
+  await db.transaction('rw', 'metadata', async () => {
+    for (const record of data) {
+      if (!record.url) {
+        console.warn('记录缺少 url 字段，跳过');
+        continue;
+      }
+      
+      // 确保数字字段为数字类型
+      const normalizedRecord = {
+        url: record.url,
+        fakeid: record.fakeid || '',
+        title: record.title || '',
+        readNum: parseInt(record.readNum, 10) || 0,
+        oldLikeNum: parseInt(record.oldLikeNum, 10) || 0,
+        shareNum: parseInt(record.shareNum, 10) || 0,
+        likeNum: parseInt(record.likeNum, 10) || 0,
+        commentNum: parseInt(record.commentNum, 10) || 0,
+      };
+      
+      await db.metadata.put(normalizedRecord);
+      importCount++;
+    }
+  });
+  
+  return importCount;
 }
 
 /**

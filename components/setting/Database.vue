@@ -40,21 +40,46 @@
       <!-- 导出数据库 -->
       <div>
         <h4 class="text-lg font-medium mb-2">导出数据库</h4>
-        <p class="text-sm text-gray-500 mb-3">将浏览器数据库导出为 SQLite DB 文件</p>
-        <UButton
-          color="primary"
-          icon="i-heroicons:arrow-up-tray"
-          :loading="exportLoading"
-          @click="handleExportDatabase"
-        >
-          导出为 DB 文件
-        </UButton>
+        <p class="text-sm text-gray-500 mb-3">
+          将浏览器数据库导出为 SQLite DB 文件（包含文章的阅读数、点赞数、分享数、喜欢数、留言数等统计数据）
+        </p>
+        <div class="flex items-center gap-3 flex-wrap">
+          <UButton
+            color="primary"
+            icon="i-heroicons:arrow-up-tray"
+            :loading="exportLoading"
+            @click="handleExportDatabase"
+          >
+            导出为 DB 文件
+          </UButton>
+          <UButton
+            color="gray"
+            variant="outline"
+            icon="i-heroicons:document-text"
+            :loading="metadataExportLoading === 'csv'"
+            @click="handleExportMetadata('csv')"
+          >
+            导出统计数据为 CSV
+          </UButton>
+          <UButton
+            color="gray"
+            variant="outline"
+            icon="i-heroicons:code-bracket"
+            :loading="metadataExportLoading === 'json'"
+            @click="handleExportMetadata('json')"
+          >
+            导出统计数据为 JSON
+          </UButton>
+        </div>
+        <p class="text-xs text-gray-400 mt-2">
+          CSV/JSON 格式仅导出统计数据，便于在 Excel 等工具中查看
+        </p>
       </div>
 
       <!-- 数据统计 -->
-      <div>
+      <div class="border-t pt-5">
         <h4 class="text-lg font-medium mb-2">数据库统计</h4>
-        <div class="grid grid-cols-2 gap-3 mt-3">
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-3 mt-3">
           <div class="p-3 bg-gray-50 dark:bg-gray-800 rounded">
             <p class="text-sm text-gray-500">公众号数量</p>
             <p class="text-2xl font-bold">{{ dbStats.info }}</p>
@@ -71,11 +96,15 @@
             <p class="text-sm text-gray-500">评论数量</p>
             <p class="text-2xl font-bold">{{ dbStats.comment }}</p>
           </div>
+          <div class="p-3 bg-blue-50 dark:bg-blue-900/30 rounded">
+            <p class="text-sm text-blue-600 dark:text-blue-400">统计数据数量</p>
+            <p class="text-2xl font-bold text-blue-700 dark:text-blue-300">{{ dbStats.metadata }}</p>
+          </div>
         </div>
       </div>
 
       <!-- 自动加载设置 -->
-      <div>
+      <div class="border-t pt-5">
         <h4 class="text-lg font-medium mb-2">自动加载</h4>
         <p class="text-sm text-gray-500 mb-3">应用启动时会自动从 <code class="px-1 py-0.5 bg-gray-100 dark:bg-gray-800 rounded">/data/wechat-backup-2025-11-12T06-46-03.db</code> 加载数据</p>
         <UButton
@@ -92,7 +121,13 @@
 </template>
 
 <script setup lang="ts">
-import { importFromSqlite, exportToSqlite, autoLoadDatabase } from '~/utils/db-sync';
+import { 
+  importFromSqlite, 
+  exportToSqlite, 
+  autoLoadDatabase,
+  exportMetadataToCsv,
+  exportMetadataToJson,
+} from '~/utils/db-sync';
 import { db } from '~/store/v2/db';
 import toastFactory from '~/composables/toast';
 
@@ -112,12 +147,16 @@ const exportLoading = ref(false);
 // 自动加载状态
 const autoLoadLoading = ref(false);
 
+// Metadata 导出状态
+const metadataExportLoading = ref<'csv' | 'json' | null>(null);
+
 // 数据库统计
 const dbStats = ref({
   info: 0,
   article: 0,
   asset: 0,
   comment: 0,
+  metadata: 0,
 });
 
 // 计算总导入数
@@ -185,14 +224,7 @@ async function handleExportDatabase() {
     const filename = `wechat-backup-${timestamp}.db`;
     
     // 下载文件
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    downloadBlob(blob, filename);
     
     toast.success('导出成功', `数据库已导出为 ${filename}`);
   } catch (error) {
@@ -201,6 +233,46 @@ async function handleExportDatabase() {
   } finally {
     exportLoading.value = false;
   }
+}
+
+// 导出 Metadata 数据（CSV/JSON 格式，便于查看）
+async function handleExportMetadata(format: 'csv' | 'json') {
+  try {
+    metadataExportLoading.value = format;
+    
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+    let blob: Blob;
+    let filename: string;
+    
+    if (format === 'csv') {
+      blob = await exportMetadataToCsv();
+      filename = `wechat-metadata-${timestamp}.csv`;
+    } else {
+      blob = await exportMetadataToJson();
+      filename = `wechat-metadata-${timestamp}.json`;
+    }
+    
+    downloadBlob(blob, filename);
+    
+    toast.success('导出成功', `统计数据已导出为 ${filename}`);
+  } catch (error) {
+    console.error('导出 Metadata 失败:', error);
+    toast.error('导出失败', (error as Error).message);
+  } finally {
+    metadataExportLoading.value = null;
+  }
+}
+
+// 通用下载 Blob 函数
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 // 处理自动加载
@@ -230,6 +302,7 @@ async function refreshStats() {
   dbStats.value.article = await db.article.count();
   dbStats.value.asset = await db.asset.count();
   dbStats.value.comment = await db.comment.count();
+  dbStats.value.metadata = await db.metadata.count();
 }
 
 // 组件挂载时刷新统计

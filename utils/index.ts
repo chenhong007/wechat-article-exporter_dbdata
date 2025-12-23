@@ -383,14 +383,33 @@ export async function packHTMLAssets(fakeid: string, html: string, title: string
     }
   }
 
-  // 阅读量
+  // 阅读量 - 支持所有文章类型：普通图文、文章分享、图片分享、文本分享、视频分享等
   let readNum = -1;
+  
+  // 方式1: 普通图文和文章分享类型 - 通过 var read_num 变量获取
   const readNumMatchResult = html.match(/var read_num = ['"](?<read_num>\d+)['"] \* 1;/);
   const readNumNewMatchResult = html.match(/var read_num_new = ['"](?<read_num_new>\d+)['"] \* 1;/);
   if (readNumNewMatchResult && readNumNewMatchResult.groups && readNumNewMatchResult.groups.read_num_new) {
     readNum = parseInt(readNumNewMatchResult.groups.read_num_new, 10);
   } else if (readNumMatchResult && readNumMatchResult.groups && readNumMatchResult.groups.read_num) {
     readNum = parseInt(readNumMatchResult.groups.read_num, 10);
+  }
+  
+  // 方式2: 图片分享、文本分享、视频分享等类型 - 通过 d.read_num 赋值获取
+  // 匹配模式: d.read_num = xml ? getXmlValue('appmsgstat.read_num.DATA') * 1 : '数字' * 1;
+  if (readNum === -1) {
+    const dReadNumMatch = html.match(/d\.read_num\s*=\s*xml\s*\?\s*getXmlValue\(['"]appmsgstat\.read_num\.DATA['"]\)\s*\*\s*1\s*:\s*['"](\d+)['"]\s*\*\s*1/);
+    if (dReadNumMatch && dReadNumMatch[1]) {
+      readNum = parseInt(dReadNumMatch[1], 10);
+    }
+  }
+  
+  // 方式3: 备用方式 - 通过 d.read_num_new 获取
+  if (readNum === -1) {
+    const dReadNumNewMatch = html.match(/d\.read_num_new\s*=\s*xml\s*\?\s*getXmlValue\(['"]user_info\.appmsg_bar_data\.read_num\.DATA['"]\)[^:]+:\s*['"](\d+)['"]\s*\*\s*1/);
+    if (dReadNumNewMatch && dReadNumNewMatch[1]) {
+      readNum = parseInt(dReadNumNewMatch[1], 10);
+    }
   }
 
   // 图片分享消息
