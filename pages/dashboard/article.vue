@@ -460,6 +460,10 @@ const customEndDate = ref<Date | null>(null);
 const titleSearch = ref('');
 const searchMode = ref<'and' | 'or'>('and');
 
+// 标题字数筛选
+const titleLengthFilterEnabled = ref(false);
+const titleLengthMax = ref<number>(20);
+
 // 时间范围选项
 const timeRangeOptions = [
   { label: '全部时间', value: 'all' },
@@ -484,6 +488,8 @@ function resetAllFilters() {
   customEndDate.value = null;
   titleSearch.value = '';
   searchMode.value = 'and';
+  titleLengthFilterEnabled.value = false;
+  titleLengthMax.value = 20;
   
   // 清空表格数据
   globalRowData = [];
@@ -506,7 +512,8 @@ const hasAnyFilter = computed(() => {
     customStartDate.value !== null ||
     customEndDate.value !== null ||
     titleSearch.value.trim() !== '' ||
-    searchMode.value !== 'and';
+    searchMode.value !== 'and' ||
+    titleLengthFilterEnabled.value;
 });
 
 // 计算显示的时间范围描述
@@ -624,6 +631,16 @@ function filterByTitle(article: Article): boolean {
   }
 }
 
+// 根据标题字数过滤文章
+function filterByTitleLength(article: Article): boolean {
+  if (!titleLengthFilterEnabled.value) {
+    return true;
+  }
+  
+  const titleLength = article.title.length;
+  return titleLength <= titleLengthMax.value;
+}
+
 // 刷新数据
 async function refreshTableData() {
   if (!selectedAccounts.value || selectedAccounts.value.length === 0) {
@@ -676,9 +693,9 @@ async function refreshTableData() {
           }
         }
         
-        // 先做标题过滤（在批量查询缓存之前过滤掉不需要的文章）
+        // 先做标题过滤和字数过滤（在批量查询缓存之前过滤掉不需要的文章）
         const tempArticle = { ...article, title: article.title } as Article;
-        if (filterByTitle(tempArticle)) {
+        if (filterByTitle(tempArticle) && filterByTitleLength(tempArticle)) {
           allArticlesWithAccount.push({ article, account });
         }
       }
@@ -1454,6 +1471,28 @@ async function debug() {
               color="gray"
               class="w-full"
             />
+          </div>
+          <!-- 标题字数筛选 -->
+          <div class="w-full sm:w-auto min-w-[200px]">
+            <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 flex items-center gap-2">
+              <UCheckbox v-model="titleLengthFilterEnabled" />
+              标题字数 ≤
+            </label>
+            <UInput
+              v-model.number="titleLengthMax"
+              type="number"
+              :min="1"
+              :max="200"
+              :disabled="!titleLengthFilterEnabled"
+              placeholder="字数上限"
+              size="md"
+              color="gray"
+              class="w-full"
+            >
+              <template #trailing>
+                <span class="text-gray-400 text-xs">字</span>
+              </template>
+            </UInput>
           </div>
           <UButton
             @click="refreshTableData"
