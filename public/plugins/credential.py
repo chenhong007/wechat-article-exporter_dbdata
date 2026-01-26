@@ -11,6 +11,53 @@ import time
 class ExtractSetCookie:
     def __init__(self):
         self.cookies = {}
+        self._lock = threading.Lock()
+        self._last_dump_ms = 0
+
+    def _dump_to_file(self):
+        # 高频写文件会明显拖慢抓取，这里做一个极轻量的节流
+        now_ms = int(time.time() * 1000)
+        if now_ms - self._last_dump_ms < 200:
+            return
+        self._last_dump_ms = now_ms
+
+        with open("credentials.json", "w") as file:
+            json.dump(list(self.cookies.values()), file, indent=4)
+
+    def _update(self, biz: str, url: str, cookie_header: str = None, set_cookie_header: str = None):
+        if not biz or not url:
+            return
+
+        timestamp = int(time.time() * 1000)
+        with self._lock:
+            prev = self.cookies.get(biz, {})
+            cookie_val = cookie_header if cookie_header else prev.get("cookie", "")
+            set_cookie_val = set_cookie_header if set_cookie_header else prev.get("set_cookie", "")
+
+            # 前端优先读取 set_cookie；如果抓不到 Set-Cookie，就用 Cookie 兜底
+            effective_set_cookie = set_cookie_val if set_cookie_val else cookie_val
+
+            if not effective_set_cookie:
+                return
+
+            self.cookies[biz] = {
+                "url": url,
+                "cookie": cookie_val,
+                "set_cookie": effective_set_cookie,
+                "timestamp": timestamp,
+            }
+            self._dump_to_file()
+
+    def request(self, flow: mitmproxy.http.HTTPFlow):
+        # 更稳：有些情况下响应里拿不到 wap_sid2，但请求里已经带了 Cookie
+        if flow.request.url.startswith("https://mp.weixin.qq.com/s?__biz="):
+            parsed_url = urlparse(flow.request.url)
+            query_params = parse_qs(parsed_url.query)
+            biz = query_params.get('__biz', [None])[0]
+            if biz:
+                cookie_header = flow.request.headers.get("Cookie")
+                if cookie_header:
+                    self._update(biz=biz, url=flow.request.url, cookie_header=cookie_header)
 
     def response(self, flow: mitmproxy.http.HTTPFlow):
         # 检查请求的 URL 是否符合过滤器
@@ -20,18 +67,11 @@ class ExtractSetCookie:
             query_params = parse_qs(parsed_url.query)
             biz = query_params.get('__biz', [None])[0]
             if biz:
-                # 提取响应头中的 Set-Cookie 数据
-                set_cookie_header = flow.response.headers.get("Set-Cookie")
-                if set_cookie_header:
-                    timestamp = int(time.time() * 1000)
-                    self.cookies[biz] = {
-                        "url": flow.request.url,
-                        "set_cookie": set_cookie_header,
-                        "timestamp": timestamp,
-                    }
-                    # 将 cookies 数据保存到文件中
-                    with open("credentials.json", "w") as file:
-                        json.dump(list(self.cookies.values()), file, indent=4)
+                # 提取响应头中的 Set-Cookie 数据（可能有多条）
+                set_cookie_headers = flow.response.headers.get_all("Set-Cookie")
+                if set_cookie_headers:
+                    merged = "; ".join(set_cookie_headers)
+                    self._update(biz=biz, url=flow.request.url, set_cookie_header=merged)
 
 
 addons = [

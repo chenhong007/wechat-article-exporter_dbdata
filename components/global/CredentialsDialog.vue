@@ -245,10 +245,82 @@ accountEventBus.on((event, payload) => {
 
 interface Credential {
   url: string;
-  set_cookie: string;
+  set_cookie?: string;
+  cookie?: string;
   timestamp: number;
-  name: string;
-  avatar: string;
+  name?: string;
+  avatar?: string;
+}
+
+function extractCookieValue(cookieHeader: string | undefined, name: string): string | null {
+  if (!cookieHeader) return null;
+  // 兼容 "Set-Cookie" 多条合并/拼接的场景：用 [,;] 作为分隔符查找 name=value
+  const match = cookieHeader.match(new RegExp(`(?:^|[,;]\\s*)${name}=([^;]+)`));
+  return match?.[1] ? match[1].trim() : null;
+}
+
+async function buildParsedCredentials(result: Credential[]): Promise<ParsedCredential[]> {
+  // 按 biz 去重：同一公众号保留最新的一条
+  const latestByBiz = new Map<string, ParsedCredential>();
+
+  for (const item of result) {
+    if (!item?.url) continue;
+
+    let searchParams: URLSearchParams;
+    try {
+      searchParams = new URL(item.url).searchParams;
+    } catch {
+      continue;
+    }
+
+    const biz = searchParams.get('__biz') || '';
+    const uin = searchParams.get('uin') || '';
+    const key = searchParams.get('key') || '';
+    const pass_ticket = searchParams.get('pass_ticket') || '';
+
+    const cookieSource = item.set_cookie || item.cookie || '';
+    const wap_sid2 = extractCookieValue(cookieSource, 'wap_sid2');
+
+    // 验证完整性
+    if (!biz || !uin || !key || !pass_ticket || !wap_sid2) {
+      continue;
+    }
+
+    const candidate: ParsedCredential = {
+      nickname: item.name,
+      avatar: item.avatar,
+      biz,
+      uin,
+      key,
+      pass_ticket,
+      wap_sid2,
+      timestamp: item.timestamp || Date.now(),
+      time: dayjs(item.timestamp || Date.now()).format('YYYY-MM-DD HH:mm:ss'),
+      valid: Date.now() < (item.timestamp || Date.now()) + 1000 * 60 * CREDENTIAL_LIVE_MINUTES,
+      added: false,
+    };
+
+    const existing = latestByBiz.get(biz);
+    if (!existing || existing.timestamp < candidate.timestamp) {
+      latestByBiz.set(biz, candidate);
+    }
+  }
+
+  const candidates = Array.from(latestByBiz.values());
+  if (candidates.length === 0) return [];
+
+  // 并行读取 info，避免逐条 await 导致卡顿
+  const infos = await Promise.allSettled(candidates.map(c => getInfoCache(c.biz)));
+
+  return candidates.map((c, idx) => {
+    const info = infos[idx].status === 'fulfilled' ? infos[idx].value : null;
+    return {
+      ...c,
+      nickname: c.nickname || info?.nickname,
+      avatar: c.avatar || info?.round_head_img,
+      added: Boolean(info),
+    };
+  });
 }
 
 let timer: number;
@@ -387,43 +459,9 @@ async function fetchCredentials() {
     return;
   }
 
-  const _credentials: ParsedCredential[] = [];
-  for (const item of result) {
-    const searchParams = new URL(item.url).searchParams;
-    const __biz = searchParams.get('__biz')!;
-    const uin = searchParams.get('uin')!;
-    const key = searchParams.get('key')!;
-    const pass_ticket = searchParams.get('pass_ticket')!;
-
-    let wap_sid2 = null;
-    const matchResult = item.set_cookie.match(/wap_sid2=(?<wap_sid2>.+?);/);
-    if (matchResult && matchResult.groups && matchResult.groups.wap_sid2) {
-      wap_sid2 = matchResult.groups.wap_sid2;
-    }
-    // 验证完整性
-    if (!__biz || !uin || !key || !pass_ticket || !wap_sid2) {
-      continue;
-    }
-
-    const info = await getInfoCache(__biz);
-    _credentials.push({
-      nickname: item.name || info?.nickname,
-      avatar: item.avatar || info?.round_head_img,
-      biz: __biz,
-      uin: uin,
-      key: key,
-      pass_ticket: pass_ticket,
-      wap_sid2: wap_sid2,
-      timestamp: item.timestamp,
-      time: dayjs(item.timestamp).format('YYYY-MM-DD HH:mm:ss'),
-      valid: Date.now() < item.timestamp + 1000 * 60 * CREDENTIAL_LIVE_MINUTES,
-      added: Boolean(info),
-    });
-  }
-    // 过滤掉已删除的项
-    credentials.value = _credentials
-      .filter(c => !isDeleted(c.biz))
-      .sort((a, b) => b.timestamp - a.timestamp);
+  const parsed = await buildParsedCredentials(result);
+  // 过滤掉已删除的项
+  credentials.value = parsed.filter(c => !isDeleted(c.biz)).sort((a, b) => b.timestamp - a.timestamp);
 }
 
 const wsURL = ref('ws://127.0.0.1:65001');
@@ -447,49 +485,15 @@ async function startListenService(isManual = false) {
     clearRetryTimer();
   });
   ws.addEventListener('message', async evt => {
-    let result = [];
+    let result: Credential[] = [];
     try {
       result = JSON.parse(evt.data);
     } catch (e) {
       console.warn('解析失败: ', e);
     }
-    const _credentials: ParsedCredential[] = [];
-    for (const item of result) {
-      const searchParams = new URL(item.url).searchParams;
-      const __biz = searchParams.get('__biz')!;
-      const uin = searchParams.get('uin')!;
-      const key = searchParams.get('key')!;
-      const pass_ticket = searchParams.get('pass_ticket')!;
-
-      let wap_sid2 = null;
-      const matchResult = item.set_cookie.match(/wap_sid2=(?<wap_sid2>.+?);/);
-      if (matchResult && matchResult.groups && matchResult.groups.wap_sid2) {
-        wap_sid2 = matchResult.groups.wap_sid2;
-      }
-      // 验证完整性
-      if (!__biz || !uin || !key || !pass_ticket || !wap_sid2) {
-        continue;
-      }
-
-      const info = await getInfoCache(__biz);
-      _credentials.push({
-        nickname: item.name || info?.nickname,
-        avatar: item.avatar || info?.round_head_img,
-        biz: __biz,
-        uin: uin,
-        key: key,
-        pass_ticket: pass_ticket,
-        wap_sid2: wap_sid2,
-        timestamp: item.timestamp,
-        time: dayjs(item.timestamp).format('YYYY-MM-DD HH:mm:ss'),
-        valid: Date.now() < item.timestamp + 1000 * 60 * CREDENTIAL_LIVE_MINUTES,
-        added: Boolean(info),
-      });
-    }
+    const _credentials = await buildParsedCredentials(result);
     // 过滤掉已删除的项
-    credentials.value = _credentials
-      .filter(c => !isDeleted(c.biz))
-      .sort((a, b) => b.timestamp - a.timestamp);
+    credentials.value = _credentials.filter(c => !isDeleted(c.biz)).sort((a, b) => b.timestamp - a.timestamp);
   });
   ws.addEventListener('close', () => {
     wsMonitoring.value = false;

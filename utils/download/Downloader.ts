@@ -18,6 +18,78 @@ type DownloadType = 'html' | 'metadata' | 'comments';
 const credentials = useLocalStorage<ParsedCredential[]>('auto-detect-credentials:credentials', []);
 const preferences: Ref<Preferences> = usePreferences() as unknown as Ref<Preferences>;
 
+type AppmsgBarDataLike = Partial<{
+  read_num: number;
+  old_like_count: number;
+  share_count: number;
+  like_count: number;
+  comment_count: number;
+}>;
+
+type CgiDataLike = Partial<{
+  user_info: Partial<{
+    appmsg_bar_data: AppmsgBarDataLike;
+  }>;
+}>;
+
+function extractCgiDataScriptFromHtml(html: string): string | null {
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    const scripts = Array.from(
+      doc.querySelectorAll('script[type="text/javascript"][h5only], script[h5only], script[type="text/javascript"], script')
+    );
+    const target = scripts.find(el => {
+      const code = el.textContent || '';
+      return code.includes('window.cgiDataNew = ') || code.includes('window.cgiData = ');
+    });
+    return target?.textContent?.trim() || null;
+  } catch (e) {
+    console.warn('提取 cgiData 脚本失败:', e);
+    return null;
+  }
+}
+
+async function parseCgiDataFromHtml(html: string): Promise<CgiDataLike | null> {
+  // 仅在浏览器端解析：通过 iframe 隔离执行 HTML 中的目标脚本，拿到 window.cgiDataNew / window.cgiData
+  if (!process.client || typeof document === 'undefined') return null;
+
+  const code = extractCgiDataScriptFromHtml(html);
+  if (!code) return null;
+
+  const iframe = document.createElement('iframe');
+  iframe.style.display = 'none';
+  iframe.srcdoc = `<script type="text/javascript">${code}</script>`;
+  document.body.appendChild(iframe);
+
+  return await new Promise(resolve => {
+    const cleanup = () => {
+      try {
+        document.body.removeChild(iframe);
+      } catch {
+        // ignore
+      }
+    };
+
+    iframe.onload = () => {
+      try {
+        const w = iframe.contentWindow as any;
+        const data = (w && (w.cgiDataNew || w.cgiData || w.window?.cgiDataNew || w.window?.cgiData)) as CgiDataLike | undefined;
+        cleanup();
+        resolve(data || null);
+      } catch (e) {
+        cleanup();
+        resolve(null);
+      }
+    };
+
+    iframe.onerror = () => {
+      cleanup();
+      resolve(null);
+    };
+  });
+}
+
 export class Downloader extends BaseDownload {
   // 下载的类型
   private downloadType: DownloadType = 'html';
@@ -529,78 +601,50 @@ export class Downloader extends BaseDownload {
   // 支持所有文章类型：普通图文、文章分享、图片分享、文本分享、视频分享等
   private async processHtmlMetadata(blob: Blob, url: string): Promise<void> {
     const html = await blob.text();
-    const parser = new DOMParser();
-    const document = parser.parseFromString(html, 'text/html');
+    const cgiData = await parseCgiDataFromHtml(html);
 
-    // 阅读数 - 支持多种文章类型的提取方式
     let readNum = 0;
-    
-    // 方式1: 普通图文和文章分享类型 - 通过 var read_num 变量获取
-    const readNumMatchResult = html.match(/var read_num = ['"](?<read_num>\d+)['"] \* 1;/);
-    const readNumNewMatchResult = html.match(/var read_num_new = ['"](?<read_num_new>\d+)['"] \* 1;/);
-    if (readNumNewMatchResult && readNumNewMatchResult.groups && readNumNewMatchResult.groups.read_num_new) {
-      readNum = parseInt(readNumNewMatchResult.groups.read_num_new, 10);
-    } else if (readNumMatchResult && readNumMatchResult.groups && readNumMatchResult.groups.read_num) {
-      readNum = parseInt(readNumMatchResult.groups.read_num, 10);
-    }
-    
-    // 方式2: 图片分享、文本分享、视频分享等类型 - 通过 d.read_num 赋值获取
-    // 匹配模式: d.read_num = xml ? getXmlValue('appmsgstat.read_num.DATA') * 1 : '数字' * 1;
-    if (readNum === 0) {
-      const dReadNumMatch = html.match(/d\.read_num\s*=\s*xml\s*\?\s*getXmlValue\(['"]appmsgstat\.read_num\.DATA['"]\)\s*\*\s*1\s*:\s*['"](\d+)['"]\s*\*\s*1/);
-      if (dReadNumMatch && dReadNumMatch[1]) {
-        readNum = parseInt(dReadNumMatch[1], 10);
-      }
-    }
-    
-    // 方式3: 备用方式 - 通过 d.read_num_new 获取
-    if (readNum === 0) {
-      const dReadNumNewMatch = html.match(/d\.read_num_new\s*=\s*xml\s*\?\s*getXmlValue\(['"]user_info\.appmsg_bar_data\.read_num\.DATA['"]\)[^:]+:\s*['"](\d+)['"]\s*\*\s*1/);
-      if (dReadNumNewMatch && dReadNumNewMatch[1]) {
-        readNum = parseInt(dReadNumNewMatch[1], 10);
-      }
-    }
-
-    // 点赞数 - 支持多种文章类型
     let oldLikeNum = 0;
-    
-    // 方式1: 从 DOM 元素获取（普通图文）
-    const oldLinkNumEl = document.querySelector('#js_bar_oldlike_btn');
-    if (oldLinkNumEl) {
-      oldLikeNum = Number(oldLinkNumEl.textContent);
-      oldLikeNum = Number.isNaN(oldLikeNum) ? 0 : oldLikeNum;
-    }
-    
-    // 方式2: 图片分享、文本分享等类型 - 通过 d.like_num 赋值获取
-    if (oldLikeNum === 0) {
-      const dLikeNumMatch = html.match(/d\.like_num\s*=\s*xml\s*\?\s*getXmlValue\(['"]appmsgstat\.like_num\.DATA['"]\)\s*\*\s*1\s*:\s*['"](\d+)['"]\s*\*\s*1/);
-      if (dLikeNumMatch && dLikeNumMatch[1]) {
-        oldLikeNum = parseInt(dLikeNumMatch[1], 10);
-      }
-    }
-
-    // 分享数
     let shareNum = 0;
-    const shareNumEl = document.querySelector('#js_bar_share_btn');
-    if (shareNumEl) {
-      shareNum = Number(shareNumEl.textContent);
-      shareNum = Number.isNaN(shareNum) ? 0 : shareNum;
-    }
-
-    // 喜欢数
     let likeNum = 0;
-    const likeNumEl = document.querySelector('#js_bar_like_btn');
-    if (likeNumEl) {
-      likeNum = Number(likeNumEl.textContent);
-      likeNum = Number.isNaN(likeNum) ? 0 : likeNum;
-    }
-
-    // 留言数
     let commentNum = 0;
-    const commentNumEl = document.querySelector('#js_bar_comment_btn');
-    if (commentNumEl) {
-      commentNum = Number(commentNumEl.textContent);
-      commentNum = Number.isNaN(commentNum) ? 0 : commentNum;
+    const appmsgBarData = cgiData?.user_info?.appmsg_bar_data;
+
+    if (appmsgBarData) {
+      readNum = Number(appmsgBarData.read_num) || 0;
+      oldLikeNum = Number(appmsgBarData.old_like_count) || 0;
+      shareNum = Number(appmsgBarData.share_count) || 0;
+      likeNum = Number(appmsgBarData.like_count) || 0;
+      commentNum = Number(appmsgBarData.comment_count) || 0;
+    } else {
+      // 兜底：从 HTML 中用正则/DOM 提取（至少保证阅读量可用）
+      const parser = new DOMParser();
+      const document = parser.parseFromString(html, 'text/html');
+
+      // 阅读数 - 支持多种文章类型的提取方式
+      const readNumMatchResult = html.match(/var read_num = ['"](?<read_num>\d+)['"] \* 1;/);
+      const readNumNewMatchResult = html.match(/var read_num_new = ['"](?<read_num_new>\d+)['"] \* 1;/);
+      if (readNumNewMatchResult?.groups?.read_num_new) {
+        readNum = parseInt(readNumNewMatchResult.groups.read_num_new, 10);
+      } else if (readNumMatchResult?.groups?.read_num) {
+        readNum = parseInt(readNumMatchResult.groups.read_num, 10);
+      }
+
+      // 图片分享、文本分享、视频分享等类型 - 通过 d.read_num 赋值获取
+      if (readNum === 0) {
+        const dReadNumMatch = html.match(
+          /d\.read_num\s*=\s*xml\s*\?\s*getXmlValue\(['"]appmsgstat\.read_num\.DATA['"]\)\s*\*\s*1\s*:\s*['"](\d+)['"]\s*\*\s*1/
+        );
+        if (dReadNumMatch?.[1]) {
+          readNum = parseInt(dReadNumMatch[1], 10);
+        }
+      }
+
+      // 点赞、分享、喜欢、留言：这里保留原来的 DOM 方式（解析不到时默认 0）
+      oldLikeNum = Number(document.querySelector('#js_bar_oldlike_btn')?.textContent) || 0;
+      shareNum = Number(document.querySelector('#js_bar_share_btn')?.textContent) || 0;
+      likeNum = Number(document.querySelector('#js_bar_like_btn')?.textContent) || 0;
+      commentNum = Number(document.querySelector('#js_bar_comment_btn')?.textContent) || 0;
     }
 
     const article = await getArticleByLink(url);
