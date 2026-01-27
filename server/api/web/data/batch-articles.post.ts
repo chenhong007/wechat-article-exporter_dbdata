@@ -9,6 +9,7 @@ export default defineEventHandler(async (event) => {
   try {
     const body = await readBody<{
       fakeids: string[];
+      timeRange?: { start: number; end: number };
     }>(event);
 
     if (!body.fakeids || !Array.isArray(body.fakeids)) {
@@ -18,7 +19,17 @@ export default defineEventHandler(async (event) => {
       });
     }
 
-    const dataMap = await batchGetArticlesFromBackend(body.fakeids);
+    if (body.timeRange) {
+      const { start, end } = body.timeRange;
+      if (typeof start !== 'number' || typeof end !== 'number') {
+        throw createError({
+          statusCode: 400,
+          message: 'timeRange 必须包含合法的 start/end 时间戳',
+        });
+      }
+    }
+
+    const dataMap = await batchGetArticlesFromBackend(body.fakeids, body.timeRange ?? null);
 
     // 转换 Map 为普通对象
     const result: Record<string, {

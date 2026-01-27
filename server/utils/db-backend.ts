@@ -98,7 +98,8 @@ export async function batchSaveArticlesToBackend(
  * @returns 文章数据映射表
  */
 export async function batchGetArticlesFromBackend(
-  fakeids: string[]
+  fakeids: string[],
+  timeRange?: { start: number; end: number } | null
 ): Promise<Map<string, ArticleStorage>> {
   const storage = useStorage('data');
   const result = new Map<string, ArticleStorage>();
@@ -108,7 +109,16 @@ export async function batchGetArticlesFromBackend(
       const key = `${STORAGE_PREFIX.ARTICLE}:${fakeid}`;
       const data = await storage.getItem<ArticleStorage>(key);
       if (data) {
-        result.set(fakeid, data);
+        const filteredArticles = timeRange
+          ? data.articles.filter(article => (
+            article.update_time >= timeRange.start && article.update_time <= timeRange.end
+          ))
+          : data.articles;
+
+        result.set(fakeid, {
+          ...data,
+          articles: filteredArticles,
+        });
       }
     })
   );

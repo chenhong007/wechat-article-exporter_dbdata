@@ -141,6 +141,7 @@ export class BaseDownload {
     this.abortControllers.set(url, abortController);
 
     try {
+      this.proxyManager.startRequest(proxy);
       const headers: Record<string, string> = {};
 
       // 使用设置的 credentials 来抓取元数据
@@ -168,6 +169,7 @@ export class BaseDownload {
       return response.blob();
     } finally {
       this.abortControllers.delete(url);
+      this.proxyManager.finishRequest(proxy);
     }
   }
 

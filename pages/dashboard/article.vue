@@ -454,7 +454,7 @@ useHead({
 
 // 筛选条件
 const selectedAccounts = ref<Info[]>([]);
-const timeRange = ref<'today' | 'week' | 'month' | 'year' | 'custom' | 'all'>('all');
+const timeRange = ref<'today' | 'week' | 'month' | 'year' | 'since2025' | 'custom' | 'all'>('all');
 const customStartDate = ref<Date | null>(null);
 const customEndDate = ref<Date | null>(null);
 const titleSearch = ref('');
@@ -471,6 +471,7 @@ const timeRangeOptions = [
   { label: '本周', value: 'week' },
   { label: '本月', value: 'month' },
   { label: '本年', value: 'year' },
+  { label: '2025年1月1日零时至', value: 'since2025' },
   { label: '自定义时间', value: 'custom' },
 ];
 
@@ -542,6 +543,8 @@ const timeRangeDescription = computed(() => {
     return `本月 (${formatDate(startDate)} 至 ${formatDate(endDate)} ${formatTime(endDate)})`;
   } else if (timeRange.value === 'year') {
     return `本年 (${formatDate(startDate)} 至 ${formatDate(endDate)} ${formatTime(endDate)})`;
+  } else if (timeRange.value === 'since2025') {
+    return `2025-01-01 00:00 至 ${formatDate(endDate)} ${formatTime(endDate)}`;
   } else if (timeRange.value === 'custom') {
     return `自定义 (${formatDate(startDate)} 至 ${formatDate(endDate)})`;
   }
@@ -587,6 +590,11 @@ function getTimeRangeTimestamps(): { start: number; end: number } | null {
       // 本年：从本年1月1日0点到现在
       const yearStart = new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0);
       return { start: yearStart.getTime() / 1000, end: nowTimestamp };
+    }
+    case 'since2025': {
+      // 2025年1月1日0点到现在
+      const sinceStart = new Date(2025, 0, 1, 0, 0, 0, 0);
+      return { start: sinceStart.getTime() / 1000, end: nowTimestamp };
     }
     case 'custom':
       if (customStartDate.value && customEndDate.value) {
@@ -670,7 +678,7 @@ async function refreshTableData() {
     const fakeids = selectedAccounts.value.map(acc => acc.fakeid);
     console.log('[数据加载] 尝试从后端服务器获取数据...');
     
-    const backendArticlesMap = await batchGetArticlesFromBackend(fakeids);
+    const backendArticlesMap = await batchGetArticlesFromBackend(fakeids, timeRangeFilter);
     console.log(`[数据加载] 从后端获取了 ${backendArticlesMap.size} 个公众号的数据`);
 
     // 第一步：收集所有文章数据（只做时间过滤和标题过滤）

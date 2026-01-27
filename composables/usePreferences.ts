@@ -15,6 +15,7 @@ const defaultOptions: Partial<Preferences> = {
   },
   downloadConfig: {
     forceDownloadContent: false,
+    credentialConcurrency: 2,
   },
   accountSyncSeconds: 5,
   syncDateRange: 'all',

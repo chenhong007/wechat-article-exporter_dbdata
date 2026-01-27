@@ -271,7 +271,8 @@ export async function getArticlesFromBackend(
  * 批量从后端获取文章数据
  */
 export async function batchGetArticlesFromBackend(
-  fakeids: string[]
+  fakeids: string[],
+  timeRange?: { start: number; end: number } | null
 ): Promise<Map<string, AppMsgExWithFakeID[]>> {
   try {
     const response = await $fetch<{
@@ -279,10 +280,14 @@ export async function batchGetArticlesFromBackend(
       data: Record<string, {
         articles: AppMsgExWithFakeID[];
         lastSync: number;
+        totalCount: number;
       }>;
     }>('/api/web/data/batch-articles', {
       method: 'POST',
-      body: { fakeids },
+      body: {
+        fakeids,
+        timeRange: timeRange ? { start: timeRange.start, end: timeRange.end } : undefined,
+      },
     });
 
     const result = new Map<string, AppMsgExWithFakeID[]>();
@@ -295,7 +300,7 @@ export async function batchGetArticlesFromBackend(
         setCacheMeta({
           fakeid,
           lastSync: Date.now(),
-          articleCount: data.articles.length,
+          articleCount: data.totalCount ?? data.articles.length,
         });
       }
     }

@@ -110,9 +110,12 @@ export class Downloader extends BaseDownload {
     this.isProcessing = true;
     const start = Date.now();
     this.emit('download:begin');
-    if (['metadata', 'comments'].includes(this.downloadType) && this.options.concurrency > 2) {
-      // 需要Credential爬取的数据，最大并发量设置为2
-      this.options.concurrency = 2;
+    if (['metadata', 'comments'].includes(this.downloadType)) {
+      const configuredConcurrency = Number(preferences.value.downloadConfig.credentialConcurrency) || 2;
+      const proxyCount = this.proxyManager.getProxyCount();
+      const maxByProxy = Math.max(1, Math.min(configuredConcurrency, proxyCount));
+      // 需要 Credential 爬取的数据，默认并发为 2，可根据代理数量和配置提升
+      this.options.concurrency = Math.max(1, Math.min(this.options.concurrency, maxByProxy));
     }
 
     try {
@@ -441,6 +444,7 @@ export class Downloader extends BaseDownload {
         const proxy = this.proxyManager.getBestProxy();
 
         try {
+          this.proxyManager.startRequest(proxy);
           const response = await this.fetchComments(article.fakeid, cached.commentID!, buffer, proxy);
           this.proxyManager.recordSuccess(proxy);
 
@@ -456,6 +460,8 @@ export class Downloader extends BaseDownload {
           }
         } catch (error) {
           await this.handleDownloadFailure(proxy, url, attempt, error);
+        } finally {
+          this.proxyManager.finishRequest(proxy);
         }
       }
 
@@ -482,6 +488,7 @@ export class Downloader extends BaseDownload {
         const proxy = this.proxyManager.getBestProxy();
 
         try {
+          this.proxyManager.startRequest(proxy);
           const response = await this.fetchCommentReply(
             article.fakeid,
             cached.commentID!,
@@ -507,6 +514,8 @@ export class Downloader extends BaseDownload {
           }
         } catch (error) {
           await this.handleDownloadFailure(proxy, url, attempt, error);
+        } finally {
+          this.proxyManager.finishRequest(proxy);
         }
       }
 

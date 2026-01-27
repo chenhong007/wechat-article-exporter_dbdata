@@ -3,6 +3,7 @@ export interface ProxyStatus {
   failures: number;
   lastUsed: number;
   cooldown: boolean;
+  inFlight: number;
   totalUse: number;
   totalSuccess: number;
   totalFailures: number;

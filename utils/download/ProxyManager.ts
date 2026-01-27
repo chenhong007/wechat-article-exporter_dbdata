@@ -29,6 +29,7 @@ export class ProxyManager {
         failures: 0,
         lastUsed: 0,
         cooldown: false,
+        inFlight: 0,
         totalFailures: 0,
         totalSuccess: 0,
         totalUse: 0,
@@ -44,6 +45,9 @@ export class ProxyManager {
       .sort((a, b) => {
         if (a[1].failures !== b[1].failures) {
           return a[1].failures - b[1].failures;
+        }
+        if (a[1].inFlight !== b[1].inFlight) {
+          return a[1].inFlight - b[1].inFlight;
         }
         return a[1].lastUsed - b[1].lastUsed;
       });
@@ -73,6 +77,22 @@ export class ProxyManager {
     });
 
     return oldestProxy;
+  }
+
+  public getProxyCount(): number {
+    return this.proxies.length;
+  }
+
+  public startRequest(proxy: string): void {
+    const status = this.proxyStatus.get(proxy);
+    if (!status) return;
+    status.inFlight++;
+  }
+
+  public finishRequest(proxy: string): void {
+    const status = this.proxyStatus.get(proxy);
+    if (!status) return;
+    status.inFlight = Math.max(0, status.inFlight - 1);
   }
 
   // 记录代理失败

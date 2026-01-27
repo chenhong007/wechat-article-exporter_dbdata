@@ -34,6 +34,29 @@
           <p><code class="text-rose-500 font-mono">https://wproxy-01.deno.dev</code></p>
           <p><code class="text-rose-500 font-mono">https://wproxy-01.deno.dev/</code></p>
         </div>
+        <div class="my-5">
+          <p class="flex items-center gap-1">
+            <span>凭证抓取并发（阅读/点赞/留言）</span>
+            <UPopover mode="hover" :popper="{ placement: 'top' }">
+              <template #panel>
+                <p class="max-w-[300px] p-3 text-sm text-gray-500">
+                  多代理分片时可适当提高并发。建议设置为可用私有代理数量，过高可能触发风控或封号。
+                </p>
+              </template>
+              <UIcon color="gray" name="i-heroicons:question-mark-circle-16-solid" class="size-5" />
+            </UPopover>
+          </p>
+          <UInput
+            type="number"
+            v-model="preferences.downloadConfig.credentialConcurrency"
+            class="w-40 font-mono"
+            :min="1"
+          >
+            <template #trailing>
+              <span class="text-gray-500 dark:text-gray-400 text-xs">并发</span>
+            </template>
+          </UInput>
+        </div>
         <UButton type="submit" @click="save" color="black" class="w-20 mt-5 justify-center disabled:bg-slate-10">{{
           saveBtnText
         }}</UButton>

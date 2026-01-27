@@ -42,6 +42,9 @@ interface ExportConfig {
 interface DownloadConfig {
   // 抓取文章内容时，不检查缓存，强制下载最新内容
   forceDownloadContent: boolean;
+
+  // 凭证相关抓取并发（阅读/点赞/留言）
+  credentialConcurrency: number;
 }
 
 interface APIAuth {

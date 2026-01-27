@@ -15,7 +15,7 @@ export default defineEventHandler(async (event) => {
     const fakeids = infos.map(info => info.fakeid);
     
     // 批量获取文章数据
-    const articlesMap = await batchGetArticlesFromBackend(fakeids);
+    const articlesMap = await batchGetArticlesFromBackend(fakeids, null);
     
     // 组合数据
     const accounts = infos.map(info => {
