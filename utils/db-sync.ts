@@ -554,12 +554,7 @@ export async function exportToSqlite(): Promise<Blob> {
       total_count INTEGER,
       create_time INTEGER,
       update_time INTEGER,
-      last_update_time INTEGER,
-      readNum INTEGER DEFAULT 0,
-      oldLikeNum INTEGER DEFAULT 0,
-      shareNum INTEGER DEFAULT 0,
-      likeNum INTEGER DEFAULT 0,
-      commentNum INTEGER DEFAULT 0
+      last_update_time INTEGER
     );
   `);
 
@@ -593,53 +588,21 @@ export async function exportToSqlite(): Promise<Blob> {
     );
   `);
 
-  // 预取 metadata 统计数据（供 info/article/metadata 三处复用）
+  // 预取 metadata 统计数据（供 article/metadata 复用）
   const metadataData = await db.metadata.toArray();
   const metadataByUrl = new Map<string, any>();
-  const metadataStatsByFakeid = new Map<
-    string,
-    {
-      readNum: number;
-      oldLikeNum: number;
-      shareNum: number;
-      likeNum: number;
-      commentNum: number;
-    }
-  >();
   for (const metadata of metadataData) {
     if (metadata.url) {
       metadataByUrl.set(metadata.url, metadata);
     }
-    if (metadata.fakeid) {
-      const stats = metadataStatsByFakeid.get(metadata.fakeid) || {
-        readNum: 0,
-        oldLikeNum: 0,
-        shareNum: 0,
-        likeNum: 0,
-        commentNum: 0,
-      };
-      stats.readNum += metadata.readNum || 0;
-      stats.oldLikeNum += metadata.oldLikeNum || 0;
-      stats.shareNum += metadata.shareNum || 0;
-      stats.likeNum += metadata.likeNum || 0;
-      stats.commentNum += metadata.commentNum || 0;
-      metadataStatsByFakeid.set(metadata.fakeid, stats);
-    }
   }
 
-  // 导出 info 表数据（包含统计字段汇总）
+  // 导出 info 表数据
   const infoData = await db.info.toArray();
   for (const record of infoData) {
-    const stats = metadataStatsByFakeid.get(record.fakeid) || {
-      readNum: 0,
-      oldLikeNum: 0,
-      shareNum: 0,
-      likeNum: 0,
-      commentNum: 0,
-    };
     sqlDb.run(
-      `INSERT INTO info (fakeid, completed, count, articles, nickname, round_head_img, total_count, create_time, update_time, last_update_time, readNum, oldLikeNum, shareNum, likeNum, commentNum) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO info (fakeid, completed, count, articles, nickname, round_head_img, total_count, create_time, update_time, last_update_time) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         record.fakeid,
         record.completed ? 1 : 0,
@@ -651,11 +614,6 @@ export async function exportToSqlite(): Promise<Blob> {
         record.create_time || null,
         record.update_time || null,
         record.last_update_time || null,
-        stats.readNum,
-        stats.oldLikeNum,
-        stats.shareNum,
-        stats.likeNum,
-        stats.commentNum,
       ]
     );
   }
