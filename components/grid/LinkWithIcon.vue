@@ -21,7 +21,7 @@ function handleClick() {
 </script>
 
 <template>
-  <div class="flex items-center justify-start h-full gap-2 px-2">
+  <div class="flex items-center justify-center h-full px-2">
     <button
       v-if="articleLink"
       @click.stop="handleClick"
@@ -32,7 +32,6 @@ function handleClick() {
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
       </svg>
     </button>
-    <span class="text-sm text-gray-600 dark:text-gray-400 truncate flex-1">{{ articleLink }}</span>
   </div>
 </template>
 
