@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import type { ICellRendererParams } from 'ag-grid-community';
 import { CREDENTIAL_LIVE_MINUTES } from '~/config';
-import type { ParsedCredential } from '~/types/credential';
 import { db } from '~/store/v2/db';
 import toastFactory from '~/composables/toast';
+import useCredentialCache from '~/composables/useCredentialCache';
 
 interface Props {
   params: ICellRendererParams & {
@@ -14,8 +14,8 @@ const props = defineProps<Props>();
 
 const toast = toastFactory();
 
-// 获取本地存储的 credentials
-const credentials = useLocalStorage<ParsedCredential[]>('auto-detect-credentials:credentials', []);
+// 获取统一缓存的 credentials
+const { credentials } = useCredentialCache();
 
 // 当前公众号的 fakeid (即 biz)
 const fakeid = computed(() => props.params.data?.fakeid);

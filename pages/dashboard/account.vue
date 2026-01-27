@@ -25,6 +25,7 @@ import GridNoRows from '~/components/grid/NoRows.vue';
 import ConfirmModal from '~/components/modal/Confirm.vue';
 import LoginModal from '~/components/modal/Login.vue';
 import toastFactory from '~/composables/toast';
+import useCredentialCache from '~/composables/useCredentialCache';
 import useLoginCheck from '~/composables/useLoginCheck';
 import { IMAGE_PROXY, isDev, websiteName } from '~/config';
 import { deleteAccountData } from '~/store/v2';
@@ -54,6 +55,7 @@ interface PromiseInstance {
 const toast = toastFactory();
 const modal = useModal();
 const { checkLogin } = useLoginCheck();
+const { credentials: credentialCache } = useCredentialCache();
 
 const { getSyncTimestamp } = useSyncDeadline();
 
@@ -590,6 +592,14 @@ async function onGridReady(params: GridReadyEvent) {
   
   refresh();
 }
+
+watch(
+  credentialCache,
+  () => {
+    gridApi.value?.refreshCells({ columns: ['credential'], force: true });
+  },
+  { deep: true }
+);
 
 // 数据恢复状态
 const isRestoring = ref(false);

@@ -6,6 +6,9 @@ export interface ParsedCredential {
   key: string;
   pass_ticket: string;
   wap_sid2: string;
+  url?: string;
+  cookie?: string;
+  set_cookie?: string;
   timestamp: number;
   time?: string;
   valid: boolean;

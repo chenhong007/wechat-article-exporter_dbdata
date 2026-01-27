@@ -10,6 +10,12 @@ import type { Info } from './info';
 import type { Metadata } from './metadata';
 import type { ResourceAsset } from './resource';
 import type { ResourceMapAsset } from './resource-map';
+import type { ParsedCredential } from '~/types/credential';
+
+interface DeletedCredential {
+  biz: string;
+  deleted_at: number;
+}
 
 const db = new Dexie('exporter.wxdown.online') as Dexie & {
   api: EntityTable<APICall>;
@@ -23,6 +29,8 @@ const db = new Dexie('exporter.wxdown.online') as Dexie & {
   metadata: EntityTable<Metadata, 'url'>;
   resource: EntityTable<ResourceAsset, 'url'>;
   'resource-map': EntityTable<ResourceMapAsset, 'url'>;
+  credentials: EntityTable<ParsedCredential, 'biz'>;
+  credentials_deleted: EntityTable<DeletedCredential, 'biz'>;
 };
 
 db.version(1).stores({
@@ -51,6 +59,22 @@ db.version(2).stores({
 
 db.version(3).stores({
   debug: 'url, fakeid',
+});
+
+db.version(4).stores({
+  api: '++, name, account, call_time',
+  article: ', fakeid, create_time, link',
+  asset: 'url, fakeid',
+  comment: 'url, fakeid',
+  comment_reply: ', url, contentID, fakeid',
+  debug: 'url, fakeid',
+  html: 'url, fakeid',
+  info: 'fakeid',
+  metadata: 'url, fakeid',
+  resource: 'url, fakeid',
+  'resource-map': 'url, fakeid',
+  credentials: 'biz, timestamp',
+  credentials_deleted: 'biz, deleted_at',
 });
 
 export { db };

@@ -10,6 +10,23 @@
 - **抓取 Credentials 成功率低**：经常拿不到 `wap_sid2`，导致凭据被丢弃。
 - **统计字段缺失**：只能抓到阅读量，**点赞/分享/喜欢** 等字段为 0。
 
+## 可达到 10 倍提速的方案（优先级从高到低）
+1) **改为“增量推送”替代轮询**
+   - mitmproxy 插件（`./wxdown-service`）直接通过 WebSocket/SSE 推送新增或变更记录，前端只做增量合并，不再每 3 秒全量拉取。
+   - 这是最接近 10x 的方案，避免“全量 JSON + 全量解析 + 全量渲染”。
+2) **插件端用内存作为数据源**
+   - `/credentials` 直接从内存返回，不落盘读取。
+   - 仅在应用退出或定时落盘，彻底消除频繁写文件的 IO 抖动。
+3) **返回“已解析字段”**
+   - 插件端直接解析出 `biz/uin/key/pass_ticket/wap_sid2`（避免前端 URL 解析 + regex）。
+   - 前端只做最小字段合并。
+4) **避免全量 LocalStorage 写入**
+   - 改用 IndexedDB（或仅保存最近 N 条），并对保存做 debounce。
+   - 大列表写 localStorage 是纯主线程阻塞。
+5) **请求防重入 + diff 过滤**
+   - `fetchCredentials` 加 in-flight 标志，上一轮未结束就跳过下一轮。
+   - 返回带 `lastUpdateTs`，前端若无变化直接跳过解析与渲染。
+
 ## 对比 `wechat-article-exporter_src`：关键差异与性能退化原因
 - **统计字段解析策略变化**：
   - `wechat-article-exporter_src` 的下载器使用 `parseCgiDataNew(html)`，从 `window.cgiDataNew.user_info.appmsg_bar_data` 直接读取 `read_num / old_like_count / share_count / like_count / comment_count`。

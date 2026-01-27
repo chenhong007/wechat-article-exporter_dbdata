@@ -168,6 +168,7 @@ import dayjs from 'dayjs';
 import { getArticleList } from '~/apis';
 import LoginModal from '~/components/modal/Login.vue';
 import toastFactory from '~/composables/toast';
+import useCredentialCache from '~/composables/useCredentialCache';
 import useLoginCheck from '~/composables/useLoginCheck';
 import { CREDENTIAL_API_HOST, CREDENTIAL_LIVE_MINUTES } from '~/config';
 import { getInfoCache, type Info } from '~/store/v2/info';
@@ -196,24 +197,93 @@ const tabs = [
 
 const { checkLogin } = useLoginCheck();
 
-const credentials = useLocalStorage<ParsedCredential[]>('auto-detect-credentials:credentials', []);
+const credentials = ref<ParsedCredential[]>([]);
 // 已删除的 biz 列表，用于过滤 WebSocket 推送的数据，永久不显示已删除的项
-const deletedBizList = useLocalStorage<string[]>('auto-detect-credentials:deleted-biz-v2', []);
+const deletedBizList = ref<string[]>([]);
+const deletedBizSet = new Set<string>();
+const credentialMap = new Map<string, ParsedCredential>();
+const lastUpdateTs = ref(0);
+const MAX_CREDENTIALS = 500;
+let persistTimer: number | null = null;
+
+function syncLocalCredentialCache(list: ParsedCredential[]) {
+  try {
+    setCredentials(list);
+  } catch (error) {
+    console.warn('同步本地 Credential 缓存失败:', error);
+  }
+}
 
 // 检查某个 biz 是否在删除列表中
 function isDeleted(biz: string): boolean {
-  return deletedBizList.value.includes(biz);
+  return deletedBizSet.has(biz);
 }
 
-for (const item of credentials.value) {
-  item.valid = Date.now() < item.timestamp + 1000 * 60 * CREDENTIAL_LIVE_MINUTES;
-}
 const validCredentialCount = computed(() => credentials.value.filter(c => c.valid).length);
 const pendingCredentialCount = computed(() => credentials.value.filter(c => c.valid && !c.added).length);
 const expiredCredentials = computed(() => credentials.value.filter(c => !c.valid));
 const toast = toastFactory();
 const modal = useModal();
+const { setCredentials } = useCredentialCache();
 
+function refreshCredentialValidity(item: ParsedCredential) {
+  item.valid = Date.now() < item.timestamp + 1000 * 60 * CREDENTIAL_LIVE_MINUTES;
+}
+
+function schedulePersistCredentials() {
+  if (persistTimer) {
+    window.clearTimeout(persistTimer);
+  }
+  persistTimer = window.setTimeout(async () => {
+    const records = credentials.value.slice(0, MAX_CREDENTIALS);
+    await db.credentials.bulkPut(records);
+    if (credentials.value.length > MAX_CREDENTIALS) {
+      const toDelete = credentials.value.slice(MAX_CREDENTIALS).map(item => item.biz);
+      await db.credentials.bulkDelete(toDelete);
+    }
+    persistTimer = null;
+  }, 500);
+}
+
+function updateCredentialList() {
+  const sorted = Array.from(credentialMap.values()).sort((a, b) => b.timestamp - a.timestamp);
+  for (const item of sorted) {
+    refreshCredentialValidity(item);
+  }
+  const limited = sorted.slice(0, MAX_CREDENTIALS);
+  if (sorted.length > MAX_CREDENTIALS) {
+    const removed = sorted.slice(MAX_CREDENTIALS);
+    for (const item of removed) {
+      credentialMap.delete(item.biz);
+    }
+  }
+  credentials.value = limited;
+  syncLocalCredentialCache(limited);
+  schedulePersistCredentials();
+}
+
+async function loadCredentialCache() {
+  const [storedCredentials, deletedRecords] = await Promise.all([
+    db.credentials.toArray(),
+    db.credentials_deleted.toArray(),
+  ]);
+  deletedBizList.value = deletedRecords.map(item => item.biz);
+  deletedBizSet.clear();
+  for (const item of deletedBizList.value) {
+    deletedBizSet.add(item);
+  }
+
+  credentialMap.clear();
+  let maxTs = 0;
+  for (const item of storedCredentials) {
+    if (item?.biz && !isDeleted(item.biz)) {
+      credentialMap.set(item.biz, item);
+      maxTs = Math.max(maxTs, item.timestamp || 0);
+    }
+  }
+  lastUpdateTs.value = maxTs;
+  updateCredentialList();
+}
 // 批量刷新状态
 const batchRefreshing = ref(false);
 
@@ -244,12 +314,18 @@ accountEventBus.on((event, payload) => {
 });
 
 interface Credential {
-  url: string;
+  url?: string;
   set_cookie?: string;
   cookie?: string;
   timestamp: number;
   name?: string;
   avatar?: string;
+  biz?: string;
+  uin?: string;
+  key?: string;
+  pass_ticket?: string;
+  wap_sid2?: string;
+  nickname?: string;
 }
 
 function extractCookieValue(cookieHeader: string | undefined, name: string): string | null {
@@ -264,22 +340,29 @@ async function buildParsedCredentials(result: Credential[]): Promise<ParsedCrede
   const latestByBiz = new Map<string, ParsedCredential>();
 
   for (const item of result) {
-    if (!item?.url) continue;
+    if (!item) continue;
 
-    let searchParams: URLSearchParams;
-    try {
-      searchParams = new URL(item.url).searchParams;
-    } catch {
-      continue;
+    let biz = item.biz || '';
+    let uin = item.uin || '';
+    let key = item.key || '';
+    let pass_ticket = item.pass_ticket || '';
+
+    if (!biz || !uin || !key || !pass_ticket) {
+      if (!item.url) continue;
+      let searchParams: URLSearchParams;
+      try {
+        searchParams = new URL(item.url).searchParams;
+      } catch {
+        continue;
+      }
+      biz = searchParams.get('__biz') || '';
+      uin = searchParams.get('uin') || '';
+      key = searchParams.get('key') || '';
+      pass_ticket = searchParams.get('pass_ticket') || '';
     }
 
-    const biz = searchParams.get('__biz') || '';
-    const uin = searchParams.get('uin') || '';
-    const key = searchParams.get('key') || '';
-    const pass_ticket = searchParams.get('pass_ticket') || '';
-
     const cookieSource = item.set_cookie || item.cookie || '';
-    const wap_sid2 = extractCookieValue(cookieSource, 'wap_sid2');
+    const wap_sid2 = item.wap_sid2 || extractCookieValue(cookieSource, 'wap_sid2');
 
     // 验证完整性
     if (!biz || !uin || !key || !pass_ticket || !wap_sid2) {
@@ -287,13 +370,16 @@ async function buildParsedCredentials(result: Credential[]): Promise<ParsedCrede
     }
 
     const candidate: ParsedCredential = {
-      nickname: item.name,
+      nickname: item.nickname || item.name,
       avatar: item.avatar,
       biz,
       uin,
       key,
       pass_ticket,
       wap_sid2,
+      url: item.url,
+      cookie: item.cookie,
+      set_cookie: item.set_cookie,
       timestamp: item.timestamp || Date.now(),
       time: dayjs(item.timestamp || Date.now()).format('YYYY-MM-DD HH:mm:ss'),
       valid: Date.now() < (item.timestamp || Date.now()) + 1000 * 60 * CREDENTIAL_LIVE_MINUTES,
@@ -323,28 +409,102 @@ async function buildParsedCredentials(result: Credential[]): Promise<ParsedCrede
   });
 }
 
-let timer: number;
+function mergeParsedCredentials(parsed: ParsedCredential[]) {
+  if (parsed.length === 0) return;
+  let changed = false;
+  for (const item of parsed) {
+    if (isDeleted(item.biz)) continue;
+    const existing = credentialMap.get(item.biz);
+    if (!existing || existing.timestamp < item.timestamp) {
+      const merged: ParsedCredential = {
+        ...existing,
+        ...item,
+        added: existing?.added ?? item.added,
+        refreshing: existing?.refreshing ?? false,
+      };
+      credentialMap.set(item.biz, merged);
+      changed = true;
+      lastUpdateTs.value = Math.max(lastUpdateTs.value, item.timestamp || 0);
+    }
+  }
+  if (changed) {
+    updateCredentialList();
+  }
+}
+
+let pollTimer: number | null = null;
+let fetchInFlight = false;
 let manulStopped = false;
 let listenRetryTimer: number | null = null;
 const monitoring = ref(JSON.parse(localStorage.getItem('auto-detect-credentials:monitoring') as string) || false);
+const sseMonitoring = ref(false);
+let sse: EventSource | null = null;
+const POLL_INTERVAL_MS = 15000;
 
 function start() {
   monitoring.value = true;
-  const oldTimer = localStorage.getItem('auto-detect-credentials:monitoring-timer');
-  if (oldTimer) {
-    window.clearInterval(parseInt(oldTimer));
-  }
-  fetchCredentials();
-  timer = window.setInterval(() => {
-    fetchCredentials();
-  }, 3000);
+  startCredentialStream();
+  startPolling();
   localStorage.setItem('auto-detect-credentials:monitoring', 'true');
-  localStorage.setItem('auto-detect-credentials:monitoring-timer', timer.toString());
 }
 function stop() {
   monitoring.value = false;
+  stopCredentialStream();
+  stopPolling();
   localStorage.setItem('auto-detect-credentials:monitoring', 'false');
-  window.clearInterval(timer);
+}
+
+function startPolling() {
+  if (pollTimer) {
+    window.clearInterval(pollTimer);
+  }
+  fetchCredentials();
+  pollTimer = window.setInterval(() => {
+    fetchCredentials();
+  }, POLL_INTERVAL_MS);
+}
+
+function stopPolling() {
+  if (pollTimer) {
+    window.clearInterval(pollTimer);
+    pollTimer = null;
+  }
+}
+
+function startCredentialStream() {
+  stopCredentialStream();
+  const token = apiKey.value?.trim();
+  if (!token) {
+    return;
+  }
+  try {
+    const url = new URL(`${CREDENTIAL_API_HOST}/credentials/stream`);
+    url.searchParams.set('auth', token);
+    sse = new EventSource(url.toString());
+  } catch (error) {
+    console.error('启动 SSE 失败:', error);
+    sseMonitoring.value = false;
+    return;
+  }
+
+  sse.addEventListener('open', () => {
+    sseMonitoring.value = true;
+  });
+  sse.addEventListener('credential', event => {
+    void handleStreamEvent(event);
+  });
+  sse.addEventListener('error', () => {
+    sseMonitoring.value = false;
+    stopCredentialStream();
+  });
+}
+
+function stopCredentialStream() {
+  if (sse) {
+    sse.close();
+    sse = null;
+  }
+  sseMonitoring.value = false;
 }
 
 // 监听服务重试机制
@@ -370,6 +530,7 @@ function clearRetryTimer() {
 }
 
 onMounted(() => {
+  loadCredentialCache();
   if (monitoring.value) {
     start();
   }
@@ -379,6 +540,12 @@ onMounted(() => {
 
 onUnmounted(() => {
   clearRetryTimer();
+  stopCredentialStream();
+  stopPolling();
+  if (persistTimer) {
+    window.clearTimeout(persistTimer);
+    persistTimer = null;
+  }
 });
 
 // 下载 credential.py 插件
@@ -435,9 +602,16 @@ async function authorize() {
 
 // 获取数据
 async function fetchCredentials() {
+  if (fetchInFlight) return;
+  fetchInFlight = true;
   let result: Credential[] = [];
+  let nextLastUpdateTs = lastUpdateTs.value;
   try {
-    const response = await fetch(`${CREDENTIAL_API_HOST}/credentials`, {
+    const url = new URL(`${CREDENTIAL_API_HOST}/credentials`);
+    if (lastUpdateTs.value > 0) {
+      url.searchParams.set('since', lastUpdateTs.value.toString());
+    }
+    const response = await fetch(url.toString(), {
       method: 'GET',
       headers: {
         Authorization: apiKey.value,
@@ -450,18 +624,54 @@ async function fetchCredentials() {
       stop();
       return;
     } else {
-      result = await response.json();
+      const data = await response.json();
+      if (Array.isArray(data)) {
+        result = data;
+      } else {
+        result = data.items || [];
+        if (typeof data.lastUpdateTs === 'number') {
+          nextLastUpdateTs = data.lastUpdateTs;
+        }
+      }
     }
   } catch (error) {
     console.error(error);
     authorized.value = false;
     stop();
     return;
+  } finally {
+    fetchInFlight = false;
   }
 
   const parsed = await buildParsedCredentials(result);
-  // 过滤掉已删除的项
-  credentials.value = parsed.filter(c => !isDeleted(c.biz)).sort((a, b) => b.timestamp - a.timestamp);
+  if (nextLastUpdateTs <= lastUpdateTs.value && parsed.length === 0) {
+    return;
+  }
+  if (nextLastUpdateTs > lastUpdateTs.value) {
+    lastUpdateTs.value = nextLastUpdateTs;
+  }
+  mergeParsedCredentials(parsed);
+}
+
+async function handleStreamEvent(event: MessageEvent) {
+  let payload: { type?: string; record?: Credential; lastUpdateTs?: number } | null = null;
+  try {
+    payload = JSON.parse(event.data || '{}');
+  } catch (error) {
+    console.warn('SSE 解析失败:', error);
+    return;
+  }
+  if (!payload) return;
+  if (typeof payload.lastUpdateTs === 'number') {
+    lastUpdateTs.value = Math.max(lastUpdateTs.value, payload.lastUpdateTs);
+  }
+  if (payload.type === 'delete' && payload.record?.biz) {
+    deleteCredential(payload.record.biz);
+    return;
+  }
+  if (!payload.record) return;
+  const parsed = await buildParsedCredentials([payload.record]);
+  mergeParsedCredentials(parsed);
 }
 
 const wsURL = ref('ws://127.0.0.1:65001');
@@ -491,9 +701,8 @@ async function startListenService(isManual = false) {
     } catch (e) {
       console.warn('解析失败: ', e);
     }
-    const _credentials = await buildParsedCredentials(result);
-    // 过滤掉已删除的项
-    credentials.value = _credentials.filter(c => !isDeleted(c.biz)).sort((a, b) => b.timestamp - a.timestamp);
+    const parsed = await buildParsedCredentials(result);
+    mergeParsedCredentials(parsed);
   });
   ws.addEventListener('close', () => {
     wsMonitoring.value = false;
@@ -516,11 +725,17 @@ async function stopListenService() {
 
 // 删除 credential（仅前端不显示，后端数据保持有效）
 function deleteCredential(biz: string) {
+  credentialMap.delete(biz);
   credentials.value = credentials.value.filter(c => c.biz !== biz);
+  syncLocalCredentialCache(credentials.value);
   // 添加到已删除列表，防止 WebSocket 推送时重新出现
-  if (!deletedBizList.value.includes(biz)) {
+  if (!deletedBizSet.has(biz)) {
+    deletedBizSet.add(biz);
     deletedBizList.value.push(biz);
+    db.credentials_deleted.put({ biz, deleted_at: Date.now() });
   }
+  db.credentials.delete(biz);
+  schedulePersistCredentials();
 }
 
 async function addAccount(credential: ParsedCredential) {
@@ -659,9 +874,9 @@ async function batchRefreshCredentials() {
 }
 
 watchEffect(() => {
-  if (!monitoring.value && !wsMonitoring.value) {
+  if (!monitoring.value && !wsMonitoring.value && !sseMonitoring.value) {
     state.value = 'inactive';
-  } else if (monitoring.value || wsMonitoring.value) {
+  } else if (monitoring.value || wsMonitoring.value || sseMonitoring.value) {
     state.value = 'active';
   } else {
     state.value = 'warning';
